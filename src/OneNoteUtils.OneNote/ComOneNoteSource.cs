@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using OneNoteUtils.Core;
@@ -10,7 +11,7 @@ namespace OneNoteUtils.OneNote;
 /// </summary>
 public class ComOneNoteSource : IOneNoteSource, IDisposable
 {
-    private readonly dynamic _onenote;
+    private readonly object _onenote;
     private readonly ILogger<ComOneNoteSource> _logger;
     private bool _disposed;
 
@@ -39,24 +40,49 @@ public class ComOneNoteSource : IOneNoteSource, IDisposable
 
     public string GetHierarchyXml()
     {
-        string hierarchyXml = "";
-        _onenote.GetHierarchy("", 4 /* hsPages */, out hierarchyXml);
-        return hierarchyXml;
+        // Parameters: bstrStartNodeID, hsScope (4 = hsPages), out pbstrHierarchyXmlOut
+        var args = new object[] { "", 4 /* hsPages */, "" };
+        var modifiers = new[] { new ParameterModifier(3) };
+        modifiers[0][2] = true; // third param is out
+
+        _onenote.GetType().InvokeMember(
+            "GetHierarchy",
+            BindingFlags.InvokeMethod,
+            null,
+            _onenote,
+            args,
+            modifiers,
+            null,
+            null);
+
+        return (string)args[2];
     }
 
     public string GetPageContentXml(string pageId)
     {
-        string pageXml = "";
-        _onenote.GetPageContent(pageId, out pageXml, 1 /* piBasic with BinaryData */);
-        return pageXml;
+        // Parameters: bstrPageID, out pbstrPageXmlOut, piAll (4 = include binary data)
+        var args = new object[] { pageId, "", 4 /* piAll */ };
+        var modifiers = new[] { new ParameterModifier(3) };
+        modifiers[0][1] = true; // second param is out
+
+        _onenote.GetType().InvokeMember(
+            "GetPageContent",
+            BindingFlags.InvokeMethod,
+            null,
+            _onenote,
+            args,
+            modifiers,
+            null,
+            null);
+
+        return (string)args[1];
     }
 
     public void Dispose()
     {
         if (!_disposed)
         {
-            if (_onenote != null)
-                Marshal.ReleaseComObject(_onenote);
+            Marshal.ReleaseComObject(_onenote);
             _disposed = true;
         }
         GC.SuppressFinalize(this);
