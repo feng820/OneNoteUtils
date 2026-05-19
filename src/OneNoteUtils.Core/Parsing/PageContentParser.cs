@@ -302,18 +302,23 @@ public static class PageContentParser
 
     private static Image? ParseImage(XmlNode imageNode, Dictionary<string, byte[]> binaryData)
     {
-        var format = (imageNode as XmlElement)?.GetAttribute("format") ?? "png";
-        var dataId = (imageNode as XmlElement)?.GetAttribute("dataID") ?? "";
+        var element = imageNode as XmlElement;
+        var format = element?.GetAttribute("format");
+        if (string.IsNullOrEmpty(format)) format = "png";
+        format = format.ToLowerInvariant();
+
+        var dataId = element?.GetAttribute("dataID") ?? "";
 
         var imgBytes = GetNodeBinaryBytes(imageNode, binaryData);
         if (imgBytes == null && string.IsNullOrEmpty(dataId)) return null;
 
-        var fileName = $"image.{format.ToLowerInvariant()}";
+        var fileName = $"image.{format}";
+        var capturedBytes = imgBytes;
 
         return new Image(
             fileName,
-            format.ToLowerInvariant(),
-            () => imgBytes ?? (binaryData.TryGetValue(dataId, out var b) ? b : null));
+            format,
+            () => capturedBytes ?? (binaryData.TryGetValue(dataId, out var b) ? b : null));
     }
 
     private static Attachment? ParseAttachment(XmlNode fileNode, Dictionary<string, byte[]> binaryData)

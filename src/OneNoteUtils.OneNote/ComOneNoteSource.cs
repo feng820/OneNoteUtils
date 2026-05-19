@@ -53,7 +53,7 @@ public class ComOneNoteSource : IOneNoteSource
         var script = $@"
             $onenote = New-Object -ComObject OneNote.Application
             $xml = ''
-            $onenote.GetPageContent('{escapedId}', [ref]$xml, 4)
+            $onenote.GetPageContent('{escapedId}', [ref]$xml, 1)
             [Console]::OutputEncoding = [Text.Encoding]::UTF8
             Write-Output $xml
         ";
