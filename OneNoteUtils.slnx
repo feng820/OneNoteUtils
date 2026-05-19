@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OneNoteUtils.Cli/OneNoteUtils.Cli.csproj" />
+    <Project Path="src/OneNoteUtils.Core/OneNoteUtils.Core.csproj" />
+    <Project Path="src/OneNoteUtils.OneNote/OneNoteUtils.OneNote.csproj" />
+    <Project Path="src/OneNoteUtils.Writers.Obsidian/OneNoteUtils.Writers.Obsidian.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OneNoteUtils.Core.Tests/OneNoteUtils.Core.Tests.csproj" />
+    <Project Path="tests/OneNoteUtils.Writers.Obsidian.Tests/OneNoteUtils.Writers.Obsidian.Tests.csproj" />
+  </Folder>
+</Solution>
