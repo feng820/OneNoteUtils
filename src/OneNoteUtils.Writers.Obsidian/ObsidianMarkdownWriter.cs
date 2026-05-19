@@ -174,8 +174,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
             case NumberedList numberedList:
                 foreach (var item in numberedList.Items)
                 {
-                    var marker = item.NumberText ?? "1.";
-                    WriteListItem(sb, item, depth, $"{marker} ", pageFileBaseName, pageOutFolder, ref imageIndex);
+                    WriteListItem(sb, item, depth, "1. ", pageFileBaseName, pageOutFolder, ref imageIndex);
                 }
                 if (depth == 0) sb.AppendLine();
                 break;

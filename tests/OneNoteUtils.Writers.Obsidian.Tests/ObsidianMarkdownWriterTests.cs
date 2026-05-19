@@ -147,7 +147,7 @@ public class ObsidianMarkdownWriterTests : IDisposable
 
         var content = ReadOutputFile("Test Notebook", "My Section", "Test Page.md");
         content.Should().Contain("1. First");
-        content.Should().Contain("2. Second");
+        content.Should().Contain("1. Second");
     }
 
     [Fact]
