@@ -228,7 +228,8 @@ public class ObsidianMarkdownWriter : INotebookWriter
         var indent = new string(' ', depth * 2);
         sb.Append($"{indent}{marker}");
 
-        // Inline content on the same line
+        // Inline content on the same line (text, images)
+        var hasBlockContent = false;
         foreach (var element in item.Elements)
         {
             if (element is Paragraph paragraph)
@@ -244,8 +245,25 @@ public class ObsidianMarkdownWriter : INotebookWriter
                 if (imgFile != null)
                     sb.Append(_options.EmbedImages ? $"![[{imgFile}]]" : $"![{imgFile}]({imgFile})");
             }
+            else
+            {
+                // Block-level content (tables, etc.) — render after the list marker line
+                hasBlockContent = true;
+            }
         }
         sb.AppendLine();
+
+        // Render block-level elements that couldn't go inline
+        if (hasBlockContent)
+        {
+            foreach (var element in item.Elements)
+            {
+                if (element is not Paragraph and not Image)
+                {
+                    WriteContentElement(sb, element, depth + 1, pageFileBaseName, pageOutFolder, ref imageIndex);
+                }
+            }
+        }
 
         // Nested children
         if (item.Children != null)
