@@ -144,7 +144,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
         string pageOutFolder,
         ref int imageIndex)
     {
-        var indent = new string(' ', depth * 2);
+        var indent = new string(' ', depth * 4);
 
         switch (element)
         {
@@ -225,7 +225,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
         string pageOutFolder,
         ref int imageIndex)
     {
-        var indent = new string(' ', depth * 2);
+        var indent = new string(' ', depth * 4);
         sb.Append($"{indent}{marker}");
 
         // Inline content on the same line (text, images)
