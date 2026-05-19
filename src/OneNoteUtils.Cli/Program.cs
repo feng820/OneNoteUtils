@@ -32,7 +32,6 @@ var options = new ExportOptions
 };
 
 config.GetSection("ExportOptions").Bind(options);
-// CLI args override config file for required params
 options.NotebookIdentifier = notebookName;
 options.OutputPath = outputPath;
 
@@ -46,83 +45,89 @@ services.AddLogging(builder =>
 });
 
 services.AddSingleton(options);
-services.AddSingleton<IOneNoteSource, ComOneNoteSource>();
+services.AddTransient<IOneNoteSource, ComOneNoteSource>();
 services.AddSingleton<INotebookWriter, ObsidianMarkdownWriter>();
 
 var provider = services.BuildServiceProvider();
-var logger = provider.GetRequiredService<ILogger<Program>>();
 
 // --- Run export ---
-try
+return RunExport(provider, notebookName, outputPath, options);
+
+// --- Export logic ---
+static int RunExport(ServiceProvider provider, string notebookName, string outputPath, ExportOptions options)
 {
-    logger.LogInformation("Starting export of notebook '{Notebook}' to '{Output}'",
-        notebookName, outputPath);
+    var logger = provider.GetRequiredService<ILogger<Program>>();
 
-    // COM calls must run on the thread that created the COM object (STA)
-    var source = provider.GetRequiredService<IOneNoteSource>();
-    var writer = provider.GetRequiredService<INotebookWriter>();
-
-    // 1. Get hierarchy and parse notebook structure
-    logger.LogInformation("Reading notebook hierarchy...");
-    var hierarchyXml = source.GetHierarchyXml();
-    var notebook = HierarchyParser.ParseNotebook(hierarchyXml, notebookName, options);
-
-    if (notebook == null)
+    try
     {
-        logger.LogError("Notebook '{Notebook}' not found. Make sure it is open in OneNote.", notebookName);
-        return 1;
-    }
+        logger.LogInformation("Starting export of notebook '{Notebook}' to '{Output}'",
+            notebookName, outputPath);
 
-    logger.LogInformation("Found notebook: {Name} ({SectionCount} sections)",
-        notebook.Name, notebook.Sections.Count);
+        var source = provider.GetRequiredService<IOneNoteSource>();
+        var writer = provider.GetRequiredService<INotebookWriter>();
 
-    // 2. Parse page content for each page
-    var totalPages = 0;
-    var failedPages = 0;
-    var populatedSections = new List<OneNoteUtils.Core.Models.Section>();
+        // 1. Get hierarchy and parse notebook structure
+        logger.LogInformation("Reading notebook hierarchy...");
+        var hierarchyXml = source.GetHierarchyXml();
+        var notebook = HierarchyParser.ParseNotebook(hierarchyXml, notebookName, options);
 
-    foreach (var section in notebook.Sections)
-    {
-        var populatedPages = new List<OneNoteUtils.Core.Models.Page>();
-
-        foreach (var page in section.Pages)
+        if (notebook == null)
         {
-            totalPages++;
-            try
-            {
-                var pageXml = source.GetPageContentXml(page.PageId);
-                var populatedPage = PageContentParser.ParsePageContent(page, pageXml);
-                populatedPages.Add(populatedPage);
-            }
-            catch (Exception ex)
-            {
-                failedPages++;
-                logger.LogWarning("Skipping page '{PageTitle}': {Error}", page.Title, ex.Message);
-                populatedPages.Add(page); // Add stub with empty elements
-            }
+            logger.LogError("Notebook '{Notebook}' not found. Make sure it is open in OneNote.", notebookName);
+            return 1;
         }
 
-        populatedSections.Add(new OneNoteUtils.Core.Models.Section(section.Name, populatedPages));
+        logger.LogInformation("Found notebook: {Name} ({SectionCount} sections)",
+            notebook.Name, notebook.Sections.Count);
+
+        // 2. Parse page content for each page
+        var totalPages = 0;
+        var failedPages = 0;
+        var populatedSections = new List<OneNoteUtils.Core.Models.Section>();
+
+        foreach (var section in notebook.Sections)
+        {
+            var populatedPages = new List<OneNoteUtils.Core.Models.Page>();
+
+            foreach (var page in section.Pages)
+            {
+                totalPages++;
+                try
+                {
+                    var pageXml = source.GetPageContentXml(page.PageId);
+                    var populatedPage = PageContentParser.ParsePageContent(page, pageXml);
+                    populatedPages.Add(populatedPage);
+                }
+                catch (Exception ex)
+                {
+                    failedPages++;
+                    logger.LogWarning("Skipping page '{PageTitle}': {Error}", page.Title, ex.Message);
+                    populatedPages.Add(page);
+                }
+            }
+
+            populatedSections.Add(new OneNoteUtils.Core.Models.Section(section.Name, populatedPages));
+        }
+
+        var populatedNotebook = new OneNoteUtils.Core.Models.Notebook(notebook.Name, populatedSections);
+
+        // 3. Write to disk
+        logger.LogInformation("Writing Obsidian Markdown...");
+        writer.Write(populatedNotebook, outputPath);
+
+        logger.LogInformation("Done. Exported {Total} pages ({Failed} failed) to: {Output}",
+            totalPages, failedPages, outputPath);
+
+        if (source is IDisposable disposable)
+            disposable.Dispose();
+
+        return 0;
     }
-
-    var populatedNotebook = new OneNoteUtils.Core.Models.Notebook(notebook.Name, populatedSections);
-
-    // 3. Write to disk
-    logger.LogInformation("Writing Obsidian Markdown...");
-    writer.Write(populatedNotebook, outputPath);
-
-    logger.LogInformation("Done. Exported {Total} pages ({Failed} failed) to: {Output}",
-        totalPages, failedPages, outputPath);
-
-    if (source is IDisposable disposable)
-        disposable.Dispose();
-
-    return 0;
-}
-catch (Exception ex)
-{
-    logger.LogCritical(ex, "Export failed: {Error}", ex.Message);
-    return 1;
+    catch (Exception ex)
+    {
+        logger.LogCritical(ex, "Export failed: {Error}", ex.Message);
+        return 1;
+    }
 }
 
 // --- Argument parsing ---
