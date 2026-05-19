@@ -281,6 +281,25 @@ public class ObsidianMarkdownWriter : INotebookWriter
         string pageOutFolder,
         ref int imageIndex)
     {
+        // Single-column tables in OneNote are typically content containers (bordered boxes),
+        // not actual tabular data. Render their content as regular block elements.
+        if (table.Rows.Count > 0 && table.Rows.All(r => r.Cells.Count == 1))
+        {
+            sb.AppendLine();
+            sb.AppendLine("---");
+            sb.AppendLine();
+            foreach (var row in table.Rows)
+            {
+                foreach (var element in row.Cells[0].Elements)
+                {
+                    WriteContentElement(sb, element, 0, pageFileBaseName, pageOutFolder, ref imageIndex);
+                }
+            }
+            sb.AppendLine("---");
+            sb.AppendLine();
+            return;
+        }
+
         sb.AppendLine();
 
         for (int rowIdx = 0; rowIdx < table.Rows.Count; rowIdx++)
