@@ -160,7 +160,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
                     sb.Append(FormatRun(run));
                 }
                 sb.AppendLine();
-                sb.AppendLine();
+                if (depth == 0) sb.AppendLine();
                 break;
 
             case BulletList bulletList:
@@ -168,7 +168,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
                 {
                     WriteListItem(sb, item, depth, "- ", pageFileBaseName, pageOutFolder, ref imageIndex);
                 }
-                sb.AppendLine();
+                if (depth == 0) sb.AppendLine();
                 break;
 
             case NumberedList numberedList:
@@ -177,7 +177,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
                     var marker = item.NumberText ?? "1.";
                     WriteListItem(sb, item, depth, $"{marker} ", pageFileBaseName, pageOutFolder, ref imageIndex);
                 }
-                sb.AppendLine();
+                if (depth == 0) sb.AppendLine();
                 break;
 
             case Table table:
