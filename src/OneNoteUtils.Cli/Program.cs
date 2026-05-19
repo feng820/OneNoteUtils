@@ -89,9 +89,12 @@ static int RunExport(ServiceProvider provider, string notebookName, string outpu
         {
             var populatedPages = new List<OneNoteUtils.Core.Models.Page>();
 
+            var sectionPageCount = section.Pages.Count;
             foreach (var page in section.Pages)
             {
                 totalPages++;
+                logger.LogInformation("[{Current}/{Total}] Fetching: {PageTitle}",
+                    totalPages, sectionPageCount, page.Title);
                 try
                 {
                     var pageXml = source.GetPageContentXml(page.PageId);

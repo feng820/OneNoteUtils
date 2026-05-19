@@ -357,12 +357,21 @@ public static class PageContentParser
             foreach (XmlElement cell in cellNodes)
             {
                 var cellElements = new List<ContentElement>();
-                var oeNodes = cell.SelectNodes(".//*[local-name()='OE']");
-                if (oeNodes != null)
+                // Select only the direct OEChildren of the cell, not deeply nested ones
+                var oeChildrenNodes = cell.SelectNodes("./*[local-name()='OEChildren']");
+                if (oeChildrenNodes != null)
                 {
-                    foreach (XmlElement oe in oeNodes)
+                    foreach (XmlElement oeChildren in oeChildrenNodes)
                     {
-                        cellElements.AddRange(ParseOEInlineContent(oe, binaryData, quickStyles));
+                        // Select only direct child OE nodes of this OEChildren
+                        var oeNodes = oeChildren.SelectNodes("./*[local-name()='OE']");
+                        if (oeNodes != null)
+                        {
+                            foreach (XmlElement oe in oeNodes)
+                            {
+                                cellElements.AddRange(ParseOEInlineContent(oe, binaryData, quickStyles));
+                            }
+                        }
                     }
                 }
                 cells.Add(new TableCell(cellElements));
