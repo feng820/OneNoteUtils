@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<one:Notebooks xmlns:one="http://schemas.microsoft.com/office/onenote/2013/onenote">
+  <one:Notebook name="Test Notebook" ID="nb-001" path="C:\Notebooks\Test">
+    <one:Section name="Getting Started" ID="sec-001">
+      <one:Page ID="page-001" name="Welcome Page" pageLevel="1" lastModifiedTime="2024-06-15T10:30:00Z" />
+      <one:Page ID="page-002" name="Sub Page A" pageLevel="2" lastModifiedTime="2024-06-15T11:00:00Z" />
+      <one:Page ID="page-003" name="Sub Page B" pageLevel="2" lastModifiedTime="2024-06-14T09:00:00Z" />
+    </one:Section>
+    <one:Section name="Advanced Topics" ID="sec-002">
+      <one:Page ID="page-004" name="Deep Dive" pageLevel="1" lastModifiedTime="2024-06-10T08:00:00Z" />
+    </one:Section>
+    <one:Section name="Archive" ID="sec-003">
+      <one:Page ID="page-005" name="Old Stuff" pageLevel="1" lastModifiedTime="2023-01-01T00:00:00Z" />
+    </one:Section>
+  </one:Notebook>
+  <one:Notebook name="Other Notebook" ID="nb-002" path="C:\Notebooks\Other">
+    <one:Section name="Notes" ID="sec-004">
+      <one:Page ID="page-006" name="Random" pageLevel="1" />
+    </one:Section>
+  </one:Notebook>
+</one:Notebooks>

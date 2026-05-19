@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<one:Page xmlns:one="http://schemas.microsoft.com/office/onenote/2013/onenote"
+          ID="page-001" name="Welcome Page">
+  <one:QuickStyleDef index="0" name="PageTitle" fontSize="20" />
+  <one:QuickStyleDef index="1" name="p" fontSize="11" />
+  <one:QuickStyleDef index="2" name="h2" fontSize="16" />
+
+  <one:Title>
+    <one:OE>
+      <one:T><![CDATA[Welcome Page]]></one:T>
+    </one:OE>
+  </one:Title>
+
+  <one:Outline>
+    <one:Position x="36" y="86" />
+    <one:OEChildren>
+      <!-- Simple paragraph -->
+      <one:OE quickStyleIndex="1">
+        <one:T><![CDATA[This is a simple paragraph with <b>bold</b> and <i>italic</i> text.]]></one:T>
+      </one:OE>
+
+      <!-- Heading -->
+      <one:OE quickStyleIndex="2">
+        <one:T><![CDATA[Section Heading]]></one:T>
+      </one:OE>
+
+      <!-- Bullet list -->
+      <one:OE>
+        <one:List><one:Bullet /></one:List>
+        <one:T><![CDATA[First bullet item]]></one:T>
+      </one:OE>
+      <one:OE>
+        <one:List><one:Bullet /></one:List>
+        <one:T><![CDATA[Second bullet item]]></one:T>
+      </one:OE>
+
+      <!-- Numbered list -->
+      <one:OE>
+        <one:List><one:Number text="1." /></one:List>
+        <one:T><![CDATA[First numbered item]]></one:T>
+      </one:OE>
+      <one:OE>
+        <one:List><one:Number text="2." /></one:List>
+        <one:T><![CDATA[Second numbered item]]></one:T>
+      </one:OE>
+
+      <!-- Paragraph with link -->
+      <one:OE>
+        <one:T><![CDATA[Visit <a href="https://example.com">Example Site</a> for more info.]]></one:T>
+      </one:OE>
+
+      <!-- Paragraph with strikethrough -->
+      <one:OE>
+        <one:T><![CDATA[This has <s>struck text</s> in it.]]></one:T>
+      </one:OE>
+
+      <!-- Table -->
+      <one:OE>
+        <one:Table>
+          <one:Row>
+            <one:Cell>
+              <one:OEChildren>
+                <one:OE><one:T><![CDATA[Header 1]]></one:T></one:OE>
+              </one:OEChildren>
+            </one:Cell>
+            <one:Cell>
+              <one:OEChildren>
+                <one:OE><one:T><![CDATA[Header 2]]></one:T></one:OE>
+              </one:OEChildren>
+            </one:Cell>
+          </one:Row>
+          <one:Row>
+            <one:Cell>
+              <one:OEChildren>
+                <one:OE><one:T><![CDATA[Cell A]]></one:T></one:OE>
+              </one:OEChildren>
+            </one:Cell>
+            <one:Cell>
+              <one:OEChildren>
+                <one:OE><one:T><![CDATA[Cell B]]></one:T></one:OE>
+              </one:OEChildren>
+            </one:Cell>
+          </one:Row>
+        </one:Table>
+      </one:OE>
+    </one:OEChildren>
+  </one:Outline>
+</one:Page>
