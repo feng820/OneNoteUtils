@@ -1,100 +1,132 @@
-using System.Diagnostics;
-using System.Text;
+using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using OneNoteUtils.Core;
+using OneNoteUtils.OneNote.Interop;
 
 namespace OneNoteUtils.OneNote;
 
 /// <summary>
-/// Reads OneNote data via the COM Interop API, using Windows PowerShell 5.1
-/// as a bridge. .NET 8's dynamic COM binder fails with TYPE_E_LIBNOTREGISTERED
-/// on Microsoft 365 OneNote installations where the type library is not registered.
-/// PowerShell 5.1 (.NET Framework) handles IDispatch without a type library.
-/// Must be called from an STA thread.
+/// Reads OneNote data via direct COM Interop with a dedicated STA thread.
+/// All COM calls are dispatched to the STA thread via a work queue.
+/// Requires OneNote desktop (Microsoft 365 / 2016+) to be installed.
 /// </summary>
-public class ComOneNoteSource : IOneNoteSource
+public class ComOneNoteSource : IOneNoteSource, IDisposable
 {
-    private const string PowerShell5Path = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+    private readonly Thread _staThread;
+    private readonly BlockingCollection<Action> _workQueue = new();
+    private readonly ManualResetEventSlim _initialized = new(false);
     private readonly ILogger<ComOneNoteSource> _logger;
+    private IOneNoteApplication? _app;
+    private Exception? _initError;
+    private bool _disposed;
 
     public ComOneNoteSource(ILogger<ComOneNoteSource> logger)
     {
         _logger = logger;
 
-        if (!File.Exists(PowerShell5Path))
-            throw new InvalidOperationException(
-                $"Windows PowerShell 5.1 not found at {PowerShell5Path}. Required for OneNote COM interop.");
+        _staThread = new Thread(StaThreadLoop) { IsBackground = true };
+        _staThread.SetApartmentState(ApartmentState.STA);
+        _staThread.Start();
 
-        _logger.LogDebug("ComOneNoteSource initialized (PowerShell 5.1 bridge).");
+        if (!_initialized.Wait(TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("OneNote COM initialization timed out.");
+
+        if (_initError != null)
+            throw new InvalidOperationException(
+                $"Failed to initialize OneNote COM: {_initError.Message}", _initError);
+
+        _logger.LogDebug("ComOneNoteSource initialized (direct COM, STA thread).");
     }
 
     public string GetHierarchyXml()
     {
         _logger.LogDebug("Fetching hierarchy XML...");
-
-        var script = @"
-            $onenote = New-Object -ComObject OneNote.Application
-            $xml = ''
-            $onenote.GetHierarchy('', 4, [ref]$xml)
-            [Console]::OutputEncoding = [Text.Encoding]::UTF8
-            Write-Output $xml
-        ";
-
-        var result = RunPowerShell5(script);
+        var result = RunOnStaThread(() =>
+        {
+            _app!.GetHierarchy("", HierarchyScope.Pages, out var xml);
+            return xml;
+        });
         _logger.LogDebug("Hierarchy XML received: {Length} characters", result.Length);
         return result;
     }
 
     public string GetPageContentXml(string pageId)
     {
-        // Escape single quotes in pageId for PowerShell
-        var escapedId = pageId.Replace("'", "''");
-
-        var script = $@"
-            $onenote = New-Object -ComObject OneNote.Application
-            $xml = ''
-            $onenote.GetPageContent('{escapedId}', [ref]$xml, 1)
-            [Console]::OutputEncoding = [Text.Encoding]::UTF8
-            Write-Output $xml
-        ";
-
-        return RunPowerShell5(script);
+        return RunOnStaThread(() =>
+        {
+            _app!.GetPageContent(pageId, out var xml, PageInfo.BinaryData);
+            return xml;
+        });
     }
 
-    private string RunPowerShell5(string script)
+    private void StaThreadLoop()
     {
-        var psi = new ProcessStartInfo
+        try
         {
-            FileName = PowerShell5Path,
-            Arguments = "-STA -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command -",
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8
-        };
-
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start PowerShell 5.1 process.");
-
-        process.StandardInput.Write(script);
-        process.StandardInput.Close();
-
-        var output = process.StandardOutput.ReadToEnd();
-        var error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
+            _app = (IOneNoteApplication)new OneNoteApplicationClass();
+        }
+        catch (Exception ex)
         {
-            var errorMsg = string.IsNullOrWhiteSpace(error) ? output : error;
-            throw new InvalidOperationException(
-                $"OneNote COM call failed (exit code {process.ExitCode}): {errorMsg.Trim()}");
+            _initError = ex;
+            _initialized.Set();
+            return;
         }
 
-        if (!string.IsNullOrWhiteSpace(error))
-            _logger.LogWarning("PowerShell stderr: {Error}", error.Trim());
+        _initialized.Set();
 
-        return output.Trim();
+        foreach (var action in _workQueue.GetConsumingEnumerable())
+        {
+            action();
+        }
+
+        // Cleanup COM on the STA thread where it was created
+        if (_app != null)
+        {
+            try { Marshal.ReleaseComObject((object)_app); }
+            catch { /* best-effort cleanup */ }
+        }
+    }
+
+    private T RunOnStaThread<T>(Func<T> func)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        T result = default!;
+        Exception? error = null;
+        using var done = new ManualResetEventSlim(false);
+
+        _workQueue.Add(() =>
+        {
+            try
+            {
+                result = func();
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+            }
+            finally
+            {
+                done.Set();
+            }
+        });
+
+        done.Wait();
+        if (error != null) throw error;
+        return result;
+    }
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            _workQueue.CompleteAdding();
+            _staThread.Join(TimeSpan.FromSeconds(5));
+            _workQueue.Dispose();
+            _initialized.Dispose();
+        }
+        GC.SuppressFinalize(this);
     }
 }
