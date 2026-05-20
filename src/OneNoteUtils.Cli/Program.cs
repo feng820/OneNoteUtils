@@ -7,7 +7,7 @@ using OneNoteUtils.OneNote;
 using OneNoteUtils.Writers.Obsidian;
 
 // --- Parse CLI arguments ---
-var (notebookName, outputPath, configPath, verbose) = ParseArgs(args);
+var (notebookName, outputPath, configPath, verbose, sections) = ParseArgs(args);
 
 if (string.IsNullOrEmpty(notebookName) || string.IsNullOrEmpty(outputPath))
 {
@@ -34,6 +34,8 @@ var options = new ExportOptions
 config.GetSection("ExportOptions").Bind(options);
 options.NotebookIdentifier = notebookName;
 options.OutputPath = outputPath;
+if (sections.Count > 0)
+    options.SectionFilter = sections;
 
 // --- Set up DI ---
 var services = new ServiceCollection();
@@ -134,10 +136,11 @@ static int RunExport(ServiceProvider provider, string notebookName, string outpu
 }
 
 // --- Argument parsing ---
-static (string? notebook, string? output, string? config, bool verbose) ParseArgs(string[] args)
+static (string? notebook, string? output, string? config, bool verbose, List<string> sections) ParseArgs(string[] args)
 {
     string? notebook = null, output = null, config = null;
     var verbose = false;
+    var sections = new List<string>();
 
     for (int i = 0; i < args.Length; i++)
     {
@@ -152,6 +155,9 @@ static (string? notebook, string? output, string? config, bool verbose) ParseArg
             case "--config" or "-c":
                 if (i + 1 < args.Length) config = args[++i];
                 break;
+            case "--section" or "-s":
+                if (i + 1 < args.Length) sections.Add(args[++i]);
+                break;
             case "--verbose" or "-v":
                 verbose = true;
                 break;
@@ -162,7 +168,7 @@ static (string? notebook, string? output, string? config, bool verbose) ParseArg
         }
     }
 
-    return (notebook, output, config, verbose);
+    return (notebook, output, config, verbose, sections);
 }
 
 static void PrintUsage()
@@ -178,9 +184,15 @@ static void PrintUsage()
           -o, --output <path>      Output directory
 
         Options:
+          -s, --section <name>     Only export this section (repeatable)
           -c, --config <path>      Path to a JSON config file (default: appsettings.json)
           -v, --verbose            Enable debug logging
           -h, --help               Show this help message
+
+        Examples:
+          OneNoteUtils.Cli -n "My Notebook" -o C:\Export
+          OneNoteUtils.Cli -n "My Notebook" -o C:\Export -s "Daily Notes"
+          OneNoteUtils.Cli -n "My Notebook" -o C:\Export -s "Section A" -s "Section B"
 
         Configuration:
           Default settings can be overridden in appsettings.json under "ExportOptions".
