@@ -6,7 +6,7 @@ Export OneNote notebooks to Obsidian-compatible Markdown with incremental sync. 
 
 - **Incremental sync** — only fetches and exports pages that changed since the last run
 - **Full content export** — headings, paragraphs, bold/italic/strikethrough, hyperlinks, underline
-- **Images & attachments** — extracted as files with Obsidian `![[embed]]` syntax
+- **Images & attachments** — extracted into `_attachments/` subfolder with Obsidian `![[embed]]` syntax
 - **Tables** — rendered as markdown tables; single-column "container" tables rendered as content blocks
 - **Nested lists** — bullet and numbered lists with correct indentation and standard markdown markers
 - **Page hierarchy** — parent/child pages become nested folders with subpage links
