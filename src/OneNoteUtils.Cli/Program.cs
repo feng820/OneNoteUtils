@@ -3,11 +3,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OneNoteUtils.Core;
 using OneNoteUtils.Core.Parsing;
+using OneNoteUtils.Core.Sync;
 using OneNoteUtils.OneNote;
 using OneNoteUtils.Writers.Obsidian;
 
 // --- Parse CLI arguments ---
-var (notebookName, outputPath, configPath, verbose, sections) = ParseArgs(args);
+var (notebookName, outputPath, configPath, verbose, sections, fullExport) = ParseArgs(args);
 
 if (string.IsNullOrEmpty(notebookName) || string.IsNullOrEmpty(outputPath))
 {
@@ -52,17 +53,165 @@ services.AddSingleton<INotebookWriter, ObsidianMarkdownWriter>();
 
 var provider = services.BuildServiceProvider();
 
-// --- Run export ---
-return RunExport(provider, notebookName, outputPath, options);
+// --- Run ---
+return fullExport
+    ? RunFullExport(provider, notebookName, outputPath, options)
+    : RunSync(provider, notebookName, outputPath, options);
 
-// --- Export logic ---
-static int RunExport(ServiceProvider provider, string notebookName, string outputPath, ExportOptions options)
+// --- Sync logic (default) ---
+static int RunSync(ServiceProvider provider, string notebookName, string outputPath, ExportOptions options)
 {
     var logger = provider.GetRequiredService<ILogger<Program>>();
 
     try
     {
-        logger.LogInformation("Starting export of notebook '{Notebook}' to '{Output}'",
+        var source = provider.GetRequiredService<IOneNoteSource>();
+        var writer = provider.GetRequiredService<INotebookWriter>();
+
+        // 1. Load manifest
+        var manifest = SyncManifest.Load(outputPath);
+        var isFirstRun = manifest.Pages.Count == 0;
+
+        if (isFirstRun)
+            logger.LogInformation("No sync manifest found — performing initial full export.");
+        else
+            logger.LogInformation("Sync manifest loaded: {PageCount} pages from last sync.", manifest.Pages.Count);
+
+        // 2. Get hierarchy and parse notebook structure (page stubs only — cheap)
+        logger.LogInformation("Reading notebook hierarchy...");
+        var hierarchyXml = source.GetHierarchyXml();
+        var notebook = HierarchyParser.ParseNotebook(hierarchyXml, notebookName, options);
+
+        if (notebook == null)
+        {
+            logger.LogError("Notebook '{Notebook}' not found. Make sure it is open in OneNote.", notebookName);
+            return 1;
+        }
+
+        logger.LogInformation("Found notebook: {Name} ({SectionCount} sections)",
+            notebook.Name, notebook.Sections.Count);
+
+        // 3. Diff manifest against current hierarchy
+        var plan = SyncDiffer.Diff(manifest, notebook);
+
+        logger.LogInformation("Sync plan: {New} new, {Modified} modified, {Deleted} deleted, {Unchanged} unchanged",
+            plan.NewPages.Count, plan.ModifiedPages.Count, plan.DeletedPages.Count, plan.UnchangedPages.Count);
+
+        if (plan.TotalWork == 0)
+        {
+            logger.LogInformation("Nothing to sync — everything is up to date.");
+            if (source is IDisposable d1) d1.Dispose();
+            return 0;
+        }
+
+        // 4. Delete stale files (deleted + modified/renamed pages' old files)
+        foreach (var deleted in plan.DeletedPages)
+        {
+            if (deleted.PreviousEntry != null)
+            {
+                DeletePageFiles(deleted.PreviousEntry, logger);
+                manifest.Pages.Remove(deleted.PageId);
+            }
+        }
+
+        foreach (var modified in plan.ModifiedPages)
+        {
+            if (modified.PreviousEntry != null)
+                DeletePageFiles(modified.PreviousEntry, logger);
+        }
+
+        // 5. Fetch content and export new + modified pages
+        var pagesToExport = plan.NewPages.Concat(plan.ModifiedPages).ToList();
+        var failedPages = 0;
+        var current = 0;
+
+        // Build a populated notebook for the writer's hierarchy context
+        var populatedSections = new List<OneNoteUtils.Core.Models.Section>();
+        foreach (var section in notebook.Sections)
+        {
+            var populatedPages = new List<OneNoteUtils.Core.Models.Page>();
+            foreach (var page in section.Pages)
+            {
+                var needsExport = pagesToExport.Any(p => p.PageId == page.PageId);
+                if (needsExport)
+                {
+                    current++;
+                    logger.LogInformation("[{Current}/{Total}] Syncing: {PageTitle}",
+                        current, pagesToExport.Count, page.Title);
+                    try
+                    {
+                        var pageXml = source.GetPageContentXml(page.PageId);
+                        var populated = PageContentParser.ParsePageContent(page, pageXml);
+                        populatedPages.Add(populated);
+                    }
+                    catch (Exception ex)
+                    {
+                        failedPages++;
+                        logger.LogWarning("Skipping page '{PageTitle}': {Error}", page.Title, ex.Message);
+                        populatedPages.Add(page);
+                    }
+                }
+                else
+                {
+                    populatedPages.Add(page);
+                }
+            }
+            populatedSections.Add(new OneNoteUtils.Core.Models.Section(section.Name, populatedPages));
+        }
+
+        var populatedNotebook = new OneNoteUtils.Core.Models.Notebook(notebook.Name, populatedSections);
+
+        // 6. Write pages and update manifest
+        foreach (var action in pagesToExport)
+        {
+            var section = populatedNotebook.Sections.FirstOrDefault(s => s.Name == action.Section);
+            var page = section?.Pages.FirstOrDefault(p => p.PageId == action.PageId);
+            if (page == null) continue;
+
+            try
+            {
+                var result = writer.WritePage(page, action.Section, populatedNotebook, outputPath);
+                manifest.Pages[action.PageId] = new SyncPageEntry
+                {
+                    Title = action.Title,
+                    Section = action.Section,
+                    LastModified = action.LastModified,
+                    ExportedPath = result.ExportedPath,
+                    ExportedFiles = result.ExportedFiles
+                };
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Failed to write page '{PageTitle}': {Error}", action.Title, ex.Message);
+            }
+        }
+
+        // 7. Save manifest
+        manifest.NotebookName = notebook.Name;
+        manifest.LastSyncTime = DateTime.UtcNow;
+        manifest.Save(outputPath);
+
+        logger.LogInformation("Sync complete. {Exported} pages synced ({Failed} failed), {Deleted} deleted.",
+            pagesToExport.Count - failedPages, failedPages, plan.DeletedPages.Count);
+
+        if (source is IDisposable d2) d2.Dispose();
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        logger.LogCritical(ex, "Sync failed: {Error}", ex.Message);
+        return 1;
+    }
+}
+
+// --- Full export logic ---
+static int RunFullExport(ServiceProvider provider, string notebookName, string outputPath, ExportOptions options)
+{
+    var logger = provider.GetRequiredService<ILogger<Program>>();
+
+    try
+    {
+        logger.LogInformation("Starting full export of notebook '{Notebook}' to '{Output}'",
             notebookName, outputPath);
 
         var source = provider.GetRequiredService<IOneNoteSource>();
@@ -86,6 +235,7 @@ static int RunExport(ServiceProvider provider, string notebookName, string outpu
         var totalPages = 0;
         var failedPages = 0;
         var populatedSections = new List<OneNoteUtils.Core.Models.Section>();
+        var manifest = new SyncManifest { NotebookName = notebook.Name };
 
         foreach (var section in notebook.Sections)
         {
@@ -120,6 +270,22 @@ static int RunExport(ServiceProvider provider, string notebookName, string outpu
         logger.LogInformation("Writing Obsidian Markdown...");
         writer.Write(populatedNotebook, outputPath);
 
+        // 4. Build and save manifest for future syncs
+        foreach (var section in populatedNotebook.Sections)
+        {
+            foreach (var page in section.Pages)
+            {
+                manifest.Pages[page.PageId] = new SyncPageEntry
+                {
+                    Title = page.Title,
+                    Section = section.Name,
+                    LastModified = page.LastModified
+                };
+            }
+        }
+        manifest.LastSyncTime = DateTime.UtcNow;
+        manifest.Save(outputPath);
+
         logger.LogInformation("Done. Exported {Total} pages ({Failed} failed) to: {Output}",
             totalPages, failedPages, outputPath);
 
@@ -135,11 +301,32 @@ static int RunExport(ServiceProvider provider, string notebookName, string outpu
     }
 }
 
+static void DeletePageFiles(SyncPageEntry entry, ILogger logger)
+{
+    // Delete the .md file
+    if (!string.IsNullOrEmpty(entry.ExportedPath) && File.Exists(entry.ExportedPath))
+    {
+        File.Delete(entry.ExportedPath);
+        logger.LogInformation("Deleted: {Path}", entry.ExportedPath);
+    }
+
+    // Delete associated images/attachments
+    foreach (var file in entry.ExportedFiles)
+    {
+        if (File.Exists(file))
+        {
+            File.Delete(file);
+            logger.LogDebug("Deleted: {Path}", file);
+        }
+    }
+}
+
 // --- Argument parsing ---
-static (string? notebook, string? output, string? config, bool verbose, List<string> sections) ParseArgs(string[] args)
+static (string? notebook, string? output, string? config, bool verbose, List<string> sections, bool fullExport) ParseArgs(string[] args)
 {
     string? notebook = null, output = null, config = null;
     var verbose = false;
+    var fullExport = false;
     var sections = new List<string>();
 
     for (int i = 0; i < args.Length; i++)
@@ -158,6 +345,9 @@ static (string? notebook, string? output, string? config, bool verbose, List<str
             case "--section" or "-s":
                 if (i + 1 < args.Length) sections.Add(args[++i]);
                 break;
+            case "--full":
+                fullExport = true;
+                break;
             case "--verbose" or "-v":
                 verbose = true;
                 break;
@@ -168,7 +358,7 @@ static (string? notebook, string? output, string? config, bool verbose, List<str
         }
     }
 
-    return (notebook, output, config, verbose, sections);
+    return (notebook, output, config, verbose, sections, fullExport);
 }
 
 static void PrintUsage()
@@ -185,18 +375,20 @@ static void PrintUsage()
 
         Options:
           -s, --section <name>     Only export this section (repeatable)
+              --full               Force full export (skip incremental sync)
           -c, --config <path>      Path to a JSON config file (default: appsettings.json)
           -v, --verbose            Enable debug logging
           -h, --help               Show this help message
 
+        Sync behavior:
+          By default, only new/modified/deleted pages are synced (incremental).
+          A .onenote-sync.json manifest tracks what was last synced.
+          Use --full to force a clean re-export of everything.
+
         Examples:
           OneNoteUtils.Cli -n "My Notebook" -o C:\Export
           OneNoteUtils.Cli -n "My Notebook" -o C:\Export -s "Daily Notes"
-          OneNoteUtils.Cli -n "My Notebook" -o C:\Export -s "Section A" -s "Section B"
-
-        Configuration:
-          Default settings can be overridden in appsettings.json under "ExportOptions".
-          See docs/agents/domain.md for the domain model.
+          OneNoteUtils.Cli -n "My Notebook" -o C:\Export --full
         """);
 }
 
