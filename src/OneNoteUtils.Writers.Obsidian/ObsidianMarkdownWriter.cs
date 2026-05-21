@@ -409,6 +409,8 @@ public class ObsidianMarkdownWriter : INotebookWriter
         return $"[[{target}]]";
     }
 
+    private const string AttachmentsFolder = "_attachments";
+
     private string? WriteImageFile(
         Image image,
         string pageFileBaseName,
@@ -418,14 +420,17 @@ public class ObsidianMarkdownWriter : INotebookWriter
         var bytes = image.LoadBytes();
         if (bytes == null) return null;
 
+        var attachDir = Path.Combine(pageOutFolder, AttachmentsFolder);
+        Directory.CreateDirectory(attachDir);
+
         var fileName = $"{pageFileBaseName}-image{imageIndex:00}.{image.Format}"
             .Replace(' ', '-');
-        var filePath = Path.Combine(pageOutFolder, fileName);
+        var filePath = Path.Combine(attachDir, fileName);
         File.WriteAllBytes(filePath, bytes);
         imageIndex++;
         _currentPageFiles.Add(filePath);
 
-        return fileName;
+        return $"{AttachmentsFolder}/{fileName}";
     }
 
     private string? WriteAttachmentFile(Attachment attachment, string pageOutFolder)
@@ -433,16 +438,19 @@ public class ObsidianMarkdownWriter : INotebookWriter
         var bytes = attachment.LoadBytes();
         if (bytes == null) return null;
 
+        var attachDir = Path.Combine(pageOutFolder, AttachmentsFolder);
+        Directory.CreateDirectory(attachDir);
+
         var safeName = FileNameUtils.SanitizeFileBaseName(
             Path.GetFileNameWithoutExtension(attachment.PreferredName));
         var ext = Path.GetExtension(attachment.PreferredName);
         var fileName = safeName + ext;
 
-        var filePath = Path.Combine(pageOutFolder, fileName);
+        var filePath = Path.Combine(attachDir, fileName);
         File.WriteAllBytes(filePath, bytes);
         _currentPageFiles.Add(filePath);
 
-        return fileName;
+        return $"{AttachmentsFolder}/{fileName}";
     }
 
     // --- Page hierarchy helpers ---
