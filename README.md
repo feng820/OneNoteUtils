@@ -1,9 +1,10 @@
 # OneNoteUtils
 
-Export OneNote notebooks to Obsidian-compatible Markdown, preserving hierarchy, formatting, images, tables, and attachments.
+Export OneNote notebooks to Obsidian-compatible Markdown with incremental sync. Preserves hierarchy, formatting, images, tables, and attachments.
 
 ## Features
 
+- **Incremental sync** — only fetches and exports pages that changed since the last run
 - **Full content export** — headings, paragraphs, bold/italic/strikethrough, hyperlinks, underline
 - **Images & attachments** — extracted as files with Obsidian `![[embed]]` syntax
 - **Tables** — rendered as markdown tables; single-column "container" tables rendered as content blocks
@@ -11,6 +12,7 @@ Export OneNote notebooks to Obsidian-compatible Markdown, preserving hierarchy, 
 - **Page hierarchy** — parent/child pages become nested folders with subpage links
 - **YAML frontmatter** — page title, OneNote page ID, section name
 - **Section filtering** — export specific sections via CLI or config
+- **Rename & delete detection** — renames clean up old files, deleted pages are removed
 - **Skip-and-continue** — individual page failures don't block the rest of the export
 - **Structured logging** — progress tracking with per-page logging
 
@@ -18,7 +20,6 @@ Export OneNote notebooks to Obsidian-compatible Markdown, preserving hierarchy, 
 
 - **Windows** — required for OneNote COM interop
 - **OneNote desktop** (Win32, not UWP/Store) — must be installed and running with notebooks open
-- **Windows PowerShell 5.1** — used as a bridge for COM interop (ships with Windows)
 - **.NET 8.0 SDK** or later — to build and run
 
 ## Quick Start
@@ -31,18 +32,27 @@ cd OneNoteUtils
 # Build
 dotnet build OneNoteUtils.slnx
 
-# Export a notebook
+# Sync a notebook (incremental — default)
 dotnet run --project src/OneNoteUtils.Cli -- -n "My Notebook" -o "C:\Export"
 
-# Export a specific section
+# Sync a specific section
 dotnet run --project src/OneNoteUtils.Cli -- -n "My Notebook" -o "C:\Export" -s "Daily Notes"
 
-# Export multiple sections
-dotnet run --project src/OneNoteUtils.Cli -- -n "My Notebook" -o "C:\Export" -s "Section A" -s "Section B"
+# Force full re-export (ignores sync manifest)
+dotnet run --project src/OneNoteUtils.Cli -- -n "My Notebook" -o "C:\Export" --full
 
 # Verbose logging
 dotnet run --project src/OneNoteUtils.Cli -- -n "My Notebook" -o "C:\Export" -v
 ```
+
+### Sync Behaviour
+
+By default, the tool performs an **incremental sync**:
+1. First run: no manifest exists → full export + creates `.onenote-sync.json`
+2. Subsequent runs: compares `lastModifiedTime` → only syncs changed pages
+3. Nothing changed? Exits instantly after one hierarchy call (~5 seconds)
+
+New pages are exported. Modified pages are re-exported. Deleted/renamed pages have their old files cleaned up. Use `--full` to force a clean re-export.
 
 ## CLI Reference
 
@@ -56,6 +66,7 @@ Required:
 
 Options:
   -s, --section <name>     Only export this section (repeatable)
+      --full               Force full export (skip incremental sync)
   -c, --config <path>      Path to a JSON config file (default: appsettings.json)
   -v, --verbose            Enable debug logging
   -h, --help               Show this help message
@@ -88,7 +99,7 @@ The solution is split into four projects with enforced layer boundaries (see [AD
 OneNoteUtils.slnx
 ├── src/
 │   ├── OneNoteUtils.Core/              — Domain models, parsers, interfaces
-│   ├── OneNoteUtils.OneNote/           — COM interop via PS5.1 bridge (net8.0-windows)
+│   ├── OneNoteUtils.OneNote/           — COM interop via dedicated STA thread (net8.0-windows)
 │   ├── OneNoteUtils.Writers.Obsidian/  — Obsidian Markdown writer
 │   └── OneNoteUtils.Cli/              — Entry point, config, DI wiring
 └── tests/
@@ -96,7 +107,7 @@ OneNoteUtils.slnx
     └── OneNoteUtils.Writers.Obsidian.Tests/ — Writer output tests (15 tests)
 ```
 
-**Pipeline:** OneNote COM → raw XML → domain model (Notebook → Section → Page → ContentElement tree) → Markdown files on disk.
+**Pipeline:** OneNote COM → raw XML → domain model (Notebook → Section → Page → ContentElement tree) → Markdown files on disk. Incremental sync uses a `.onenote-sync.json` manifest to track state between runs (see [ADR-0004](docs/adr/0004-incremental-sync-via-json-manifest.md)).
 
 See [CONTEXT.md](CONTEXT.md) for the domain glossary and [docs/adr/](docs/adr/) for architectural decisions.
 

@@ -71,7 +71,8 @@ public class ObsidianMarkdownWriter : INotebookWriter
 
         try
         {
-            WritePageFile(info, folder, sectionName, pageInfos);
+            var result = WritePageFile(info, folder, sectionName, pageInfos);
+            // Result is used by WritePage; for full export via Write() we don't need it
         }
         catch (Exception ex)
         {
@@ -84,12 +85,15 @@ public class ObsidianMarkdownWriter : INotebookWriter
         }
     }
 
-    private void WritePageFile(
+    private List<string> _currentPageFiles = [];
+
+    private WritePageResult WritePageFile(
         PageInfo info,
         string folder,
         string sectionName,
         Dictionary<string, PageInfo> pageInfos)
     {
+        _currentPageFiles = [];
         var sb = new StringBuilder();
         var imageIndex = 1;
 
@@ -134,6 +138,35 @@ public class ObsidianMarkdownWriter : INotebookWriter
         var mdPath = Path.Combine(folder, info.SafeBase + ".md");
         File.WriteAllText(mdPath, sb.ToString(), Encoding.UTF8);
         _logger.LogInformation("Exported: {Path}", mdPath);
+
+        return new WritePageResult(mdPath, _currentPageFiles);
+    }
+
+    /// <inheritdoc />
+    public WritePageResult WritePage(Page page, string sectionName, Notebook notebook, string outputPath)
+    {
+        var notebookFolder = Path.Combine(outputPath,
+            FileNameUtils.SanitizeFileBaseName(notebook.Name));
+        var sectionFolder = Path.Combine(notebookFolder,
+            FileNameUtils.SanitizeFileBaseName(sectionName));
+        Directory.CreateDirectory(sectionFolder);
+
+        // Find the section to build hierarchy context
+        var section = notebook.Sections.FirstOrDefault(s => s.Name == sectionName);
+        var pages = section?.Pages ?? [page];
+        var pageInfos = BuildPageHierarchy(pages);
+
+        if (!pageInfos.TryGetValue(page.PageId, out var info))
+        {
+            // Page not in hierarchy — create a simple entry
+            var safeBase = FileNameUtils.SanitizeFileBaseName(page.Title);
+            info = new PageInfo(page, safeBase, null, []);
+        }
+
+        var folder = GetPageFolder(page.PageId, pageInfos, sectionFolder);
+        Directory.CreateDirectory(folder);
+
+        return WritePageFile(info, folder, sectionName, pageInfos);
     }
 
     private void WriteContentElement(
@@ -390,6 +423,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
         var filePath = Path.Combine(pageOutFolder, fileName);
         File.WriteAllBytes(filePath, bytes);
         imageIndex++;
+        _currentPageFiles.Add(filePath);
 
         return fileName;
     }
@@ -406,6 +440,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
 
         var filePath = Path.Combine(pageOutFolder, fileName);
         File.WriteAllBytes(filePath, bytes);
+        _currentPageFiles.Add(filePath);
 
         return fileName;
     }
