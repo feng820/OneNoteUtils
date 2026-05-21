@@ -41,8 +41,16 @@ The component that serializes the domain model to a specific output format (curr
 _Avoid_: exporter, renderer, formatter
 
 **Export**:
-The end-to-end process of reading a **Notebook** from a **Source**, parsing it, and writing it via a **Writer** to disk.
-_Avoid_: sync, conversion, migration
+The end-to-end process of reading a **Notebook** from a **Source**, parsing it, and writing it via a **Writer** to disk. A full **Export** overwrites all output files unconditionally.
+_Avoid_: conversion, migration
+
+**Sync**:
+An incremental **Export** that compares OneNote's `lastModifiedTime` against a **Sync Manifest** and only re-exports **Pages** that are new, modified, renamed, or deleted since the last run. OneNote is the source of truth; Obsidian is a read-only mirror.
+_Avoid_: backup, replication
+
+**Sync Manifest**:
+A JSON file (`.onenote-sync.json`) stored in the output directory that records which **Pages** were last synced, their timestamps, and the file paths that were written. Used by **Sync** to detect changes and clean up stale files.
+_Avoid_: state file, cache, database
 
 ## Relationships
 
@@ -52,6 +60,8 @@ _Avoid_: sync, conversion, migration
 - A **Content Element** may recursively contain other **Content Elements** (e.g. a table cell or list item containing images and formatted text)
 - A paragraph **Content Element** contains one or more **Runs**
 - **Page Level** determines the parent–child tree of **Pages** within a **Section**
+- A **Sync** reads the **Sync Manifest**, compares timestamps, and re-exports only changed **Pages**
+- A **Sync Manifest** belongs to one output directory and tracks all **Pages** previously synced to it
 
 ## Example dialogue
 
@@ -63,5 +73,5 @@ _Avoid_: sync, conversion, migration
 
 ## Flagged ambiguities
 
-- "export" vs "sync" — resolved: this tool does a full **Export** (overwrite). Incremental sync is a future concern.
+- "export" vs "sync" — resolved: **Export** is a full overwrite; **Sync** is incremental using a **Sync Manifest**. Sync is the default CLI behaviour; `--full` forces an Export.
 - "converter" was used to mean both the XML-to-model transformation and the model-to-Markdown serialization — resolved: the former is the **Parser**, the latter is the **Writer**.
