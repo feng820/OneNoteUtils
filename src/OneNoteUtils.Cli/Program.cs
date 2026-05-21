@@ -234,6 +234,7 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
         // 2. Parse page content for each page
         var totalPages = 0;
         var failedPages = 0;
+        var totalPageCount = notebook.Sections.Sum(s => s.Pages.Count);
         var populatedSections = new List<OneNoteUtils.Core.Models.Section>();
         var manifest = new SyncManifest { NotebookName = notebook.Name };
 
@@ -241,12 +242,11 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
         {
             var populatedPages = new List<OneNoteUtils.Core.Models.Page>();
 
-            var sectionPageCount = section.Pages.Count;
             foreach (var page in section.Pages)
             {
                 totalPages++;
                 logger.LogInformation("[{Current}/{Total}] Fetching: {PageTitle}",
-                    totalPages, sectionPageCount, page.Title);
+                    totalPages, totalPageCount, page.Title);
                 try
                 {
                     var pageXml = source.GetPageContentXml(page.PageId);
