@@ -45,11 +45,15 @@ The end-to-end process of reading a **Notebook** from a **Source**, parsing it, 
 _Avoid_: conversion, migration
 
 **Sync**:
-An incremental **Export** that compares OneNote's `lastModifiedTime` against a **Sync Manifest** and only re-exports **Pages** that are new, modified, renamed, or deleted since the last run. OneNote is the source of truth; Obsidian is a read-only mirror.
+An incremental **Export** that compares OneNote's `lastModifiedTime` against a **Sync Manifest** and only re-exports **Pages** that are new, modified, renamed, or deleted since the last run. OneNote is the source of truth; Obsidian is a read-only mirror. This is the "pull" direction.
 _Avoid_: backup, replication
 
+**Push**:
+The reverse of **Sync** — takes one or more Markdown files from Obsidian and creates or updates **Pages** in a OneNote **Notebook** and **Section**. Used to share notes with a team that works in OneNote.
+_Avoid_: upload, import
+
 **Sync Manifest**:
-A JSON file (`.onenote-sync.json`) stored in the output directory that records which **Pages** were last synced, their timestamps, and the file paths that were written. Used by **Sync** to detect changes and clean up stale files.
+A JSON file (`.onenote-sync.json`) stored in the output directory that records which **Pages** were last synced (pulled) and which Markdown files were last pushed. Used by **Sync** and **Push** to detect changes, match pages by ID, and clean up stale files.
 _Avoid_: state file, cache, database
 
 ## Relationships
@@ -60,8 +64,9 @@ _Avoid_: state file, cache, database
 - A **Content Element** may recursively contain other **Content Elements** (e.g. a table cell or list item containing images and formatted text)
 - A paragraph **Content Element** contains one or more **Runs**
 - **Page Level** determines the parent–child tree of **Pages** within a **Section**
-- A **Sync** reads the **Sync Manifest**, compares timestamps, and re-exports only changed **Pages**
-- A **Sync Manifest** belongs to one output directory and tracks all **Pages** previously synced to it
+- A **Sync** reads the **Sync Manifest**, compares timestamps, and re-exports only changed **Pages** (pull direction)
+- A **Push** reads Markdown files, converts them to **Content Elements**, and writes them to OneNote via the **Source** (push direction)
+- A **Sync Manifest** belongs to one output directory and tracks both pulled **Pages** and pushed Markdown files
 
 ## Example dialogue
 
@@ -74,4 +79,5 @@ _Avoid_: state file, cache, database
 ## Flagged ambiguities
 
 - "export" vs "sync" — resolved: **Export** is a full overwrite; **Sync** is incremental using a **Sync Manifest**. Sync is the default CLI behaviour; `--full` forces an Export.
+- "sync" vs "push" — resolved: **Sync** is the pull direction (OneNote → Obsidian); **Push** is the reverse (Obsidian → OneNote). Both are explicit operations.
 - "converter" was used to mean both the XML-to-model transformation and the model-to-Markdown serialization — resolved: the former is the **Parser**, the latter is the **Writer**.
