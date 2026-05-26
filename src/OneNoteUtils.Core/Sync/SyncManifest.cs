@@ -20,6 +20,9 @@ public class SyncManifest
     [JsonPropertyName("pages")]
     public Dictionary<string, SyncPageEntry> Pages { get; set; } = new();
 
+    [JsonPropertyName("pushed")]
+    public Dictionary<string, PushEntry> Pushed { get; set; } = new();
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -70,4 +73,22 @@ public class SyncPageEntry
 
     [JsonPropertyName("exportedFiles")]
     public List<string> ExportedFiles { get; set; } = [];
+}
+
+/// <summary>
+/// Per-file entry tracking a markdown file pushed to OneNote.
+/// </summary>
+public class PushEntry
+{
+    [JsonPropertyName("pageId")]
+    public string PageId { get; set; } = "";
+
+    [JsonPropertyName("notebookName")]
+    public string NotebookName { get; set; } = "";
+
+    [JsonPropertyName("sectionName")]
+    public string SectionName { get; set; } = "";
+
+    [JsonPropertyName("lastPushed")]
+    public DateTime LastPushed { get; set; }
 }

@@ -60,6 +60,54 @@ public class ComOneNoteSource : IOneNoteSource, IDisposable
         });
     }
 
+    public string CreatePage(string sectionId)
+    {
+        return RunOnStaThread(() =>
+        {
+            _app!.CreateNewPage(sectionId, out var pageId);
+            return pageId;
+        });
+    }
+
+    public void UpdatePageContent(string pageXml)
+    {
+        RunOnStaThread(() =>
+        {
+            _app!.UpdatePageContent(pageXml, 0, Interop.XMLSchema.Current, true);
+            return 0; // dummy return for RunOnStaThread<T>
+        });
+    }
+
+    public string? FindSectionId(string notebookName, string sectionName)
+    {
+        return RunOnStaThread(() =>
+        {
+            _app!.GetHierarchy("", HierarchyScope.Sections, out var xml);
+            var doc = new System.Xml.XmlDocument();
+            doc.LoadXml(xml);
+
+            var notebooks = doc.SelectNodes("//*[local-name()='Notebook']");
+            if (notebooks == null) return (string?)null;
+
+            foreach (System.Xml.XmlElement nb in notebooks)
+            {
+                if (!nb.GetAttribute("name").Equals(notebookName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var sections = nb.SelectNodes(".//*[local-name()='Section']");
+                if (sections == null) continue;
+
+                foreach (System.Xml.XmlElement sec in sections)
+                {
+                    if (sec.GetAttribute("name").Equals(sectionName, StringComparison.OrdinalIgnoreCase))
+                        return sec.GetAttribute("ID");
+                }
+            }
+
+            return (string?)null;
+        });
+    }
+
     private void StaThreadLoop()
     {
         try

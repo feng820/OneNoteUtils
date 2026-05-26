@@ -1,7 +1,7 @@
 namespace OneNoteUtils.Core;
 
 /// <summary>
-/// Reads raw data from OneNote. Implementations wrap specific access methods
+/// Reads and writes data to OneNote. Implementations wrap specific access methods
 /// (COM Interop, file parsing, REST API, etc.).
 /// </summary>
 public interface IOneNoteSource
@@ -15,4 +15,20 @@ public interface IOneNoteSource
     /// Returns the page content XML for a specific page, including binary data.
     /// </summary>
     string GetPageContentXml(string pageId);
+
+    /// <summary>
+    /// Creates a new blank page in the specified section and returns its page ID.
+    /// </summary>
+    string CreatePage(string sectionId);
+
+    /// <summary>
+    /// Updates the content of an existing page using OneNote XML.
+    /// </summary>
+    void UpdatePageContent(string pageXml);
+
+    /// <summary>
+    /// Finds a section ID by notebook name and section name.
+    /// Returns null if not found.
+    /// </summary>
+    string? FindSectionId(string notebookName, string sectionName);
 }

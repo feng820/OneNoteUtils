@@ -1,0 +1,305 @@
+using System.Text.RegularExpressions;
+using OneNoteUtils.Core.Models;
+
+namespace OneNoteUtils.Core.Parsing;
+
+/// <summary>
+/// Parses Markdown text into a list of ContentElements.
+/// Supports headings, paragraphs (bold/italic/strikethrough/links),
+/// bullet lists, numbered lists, and tables.
+/// </summary>
+public static class MarkdownReader
+{
+    /// <summary>
+    /// Parses a markdown string into content elements, stripping YAML frontmatter.
+    /// </summary>
+    public static IReadOnlyList<ContentElement> Parse(string markdown)
+    {
+        var lines = StripFrontmatter(markdown).Split('\n')
+            .Select(l => l.TrimEnd('\r'))
+            .ToList();
+
+        var elements = new List<ContentElement>();
+        var i = 0;
+
+        while (i < lines.Count)
+        {
+            var line = lines[i];
+
+            // Skip blank lines
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                i++;
+                continue;
+            }
+
+            // Heading
+            var headingMatch = Regex.Match(line, @"^(#{1,6})\s+(.+)$");
+            if (headingMatch.Success)
+            {
+                var level = headingMatch.Groups[1].Value.Length;
+                var text = headingMatch.Groups[2].Value.Trim();
+                elements.Add(new Heading(level, text));
+                i++;
+                continue;
+            }
+
+            // Table (line contains | and next line is separator)
+            if (IsTableRow(line) && i + 1 < lines.Count && IsTableSeparator(lines[i + 1]))
+            {
+                var tableLines = new List<string> { line };
+                i++; // skip header
+                i++; // skip separator
+                while (i < lines.Count && IsTableRow(lines[i]))
+                {
+                    tableLines.Add(lines[i]);
+                    i++;
+                }
+                elements.Add(ParseTable(tableLines));
+                continue;
+            }
+
+            // Bullet list
+            if (IsBulletLine(line))
+            {
+                var (list, nextIndex) = ParseBulletList(lines, i, GetIndent(line));
+                elements.Add(list);
+                i = nextIndex;
+                continue;
+            }
+
+            // Numbered list
+            if (IsNumberedLine(line))
+            {
+                var (list, nextIndex) = ParseNumberedList(lines, i, GetIndent(line));
+                elements.Add(list);
+                i = nextIndex;
+                continue;
+            }
+
+            // Paragraph — collect consecutive non-blank, non-special lines
+            var paragraphText = line;
+            i++;
+            elements.Add(new Paragraph(ParseInlineFormatting(paragraphText)));
+            continue;
+        }
+
+        return elements;
+    }
+
+    // --- Inline formatting ---
+
+    /// <summary>
+    /// Parses inline markdown formatting into Runs.
+    /// Handles: **bold**, *italic*, ~~strikethrough~~, [text](url)
+    /// </summary>
+    public static IReadOnlyList<Run> ParseInlineFormatting(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return [];
+
+        var runs = new List<Run>();
+        var pattern = @"(\*\*\*(.+?)\*\*\*)" +           // ***bold italic***
+                      @"|(\*\*(.+?)\*\*)" +               // **bold**
+                      @"|(\*(.+?)\*)" +                    // *italic*
+                      @"|(~~(.+?)~~)" +                    // ~~strikethrough~~
+                      @"|(\[([^\]]+)\]\(([^)]+)\))" +     // [text](url)
+                      @"|(<u>(.+?)</u>)";                  // <u>underline</u>
+
+        var pos = 0;
+        foreach (Match match in Regex.Matches(text, pattern))
+        {
+            // Add plain text before this match
+            if (match.Index > pos)
+                runs.Add(new Run(text[pos..match.Index]));
+
+            if (match.Groups[2].Success) // ***bold italic***
+                runs.Add(new Run(match.Groups[2].Value, Bold: true, Italic: true));
+            else if (match.Groups[4].Success) // **bold**
+                runs.Add(new Run(match.Groups[4].Value, Bold: true));
+            else if (match.Groups[6].Success) // *italic*
+                runs.Add(new Run(match.Groups[6].Value, Italic: true));
+            else if (match.Groups[8].Success) // ~~strikethrough~~
+                runs.Add(new Run(match.Groups[8].Value, Strikethrough: true));
+            else if (match.Groups[10].Success) // [text](url)
+                runs.Add(new Run(match.Groups[10].Value, HrefUrl: match.Groups[11].Value));
+            else if (match.Groups[13].Success) // <u>underline</u>
+                runs.Add(new Run(match.Groups[13].Value, Underline: true));
+
+            pos = match.Index + match.Length;
+        }
+
+        // Add remaining text
+        if (pos < text.Length)
+            runs.Add(new Run(text[pos..]));
+
+        return runs.Count > 0 ? runs : [new Run(text)];
+    }
+
+    // --- List parsing ---
+
+    private static (BulletList list, int nextIndex) ParseBulletList(List<string> lines, int start, int baseIndent)
+    {
+        var items = new List<ListItem>();
+
+        var i = start;
+        while (i < lines.Count)
+        {
+            var line = lines[i];
+            if (string.IsNullOrWhiteSpace(line)) { i++; continue; }
+
+            var indent = GetIndent(line);
+            if (indent < baseIndent) break;
+            if (indent == baseIndent && !IsBulletLine(line)) break;
+
+            if (indent > baseIndent)
+            {
+                // Nested list — parse as children of the last item
+                if (items.Count > 0)
+                {
+                    var children = new List<ContentElement>();
+                    if (IsBulletLine(line))
+                    {
+                        var (nested, ni) = ParseBulletList(lines, i, indent);
+                        children.Add(nested);
+                        i = ni;
+                    }
+                    else if (IsNumberedLine(line))
+                    {
+                        var (nested, ni) = ParseNumberedList(lines, i, indent);
+                        children.Add(nested);
+                        i = ni;
+                    }
+                    else { i++; continue; }
+
+                    var last = items[^1];
+                    items[^1] = last with { Children = (last.Children?.Concat(children).ToList()) ?? children };
+                }
+                else { i++; }
+                continue;
+            }
+
+            // This line is a bullet item at our indent level
+            var itemText = StripBulletMarker(line);
+            items.Add(new ListItem(new List<ContentElement>
+            {
+                new Paragraph(ParseInlineFormatting(itemText))
+            }));
+            i++;
+        }
+
+        return (new BulletList(items), i);
+    }
+
+    private static (NumberedList list, int nextIndex) ParseNumberedList(List<string> lines, int start, int baseIndent)
+    {
+        var items = new List<ListItem>();
+
+        var i = start;
+        while (i < lines.Count)
+        {
+            var line = lines[i];
+            if (string.IsNullOrWhiteSpace(line)) { i++; continue; }
+
+            var indent = GetIndent(line);
+            if (indent < baseIndent) break;
+            if (indent == baseIndent && !IsNumberedLine(line)) break;
+
+            if (indent > baseIndent)
+            {
+                if (items.Count > 0)
+                {
+                    var children = new List<ContentElement>();
+                    if (IsBulletLine(line))
+                    {
+                        var (nested, ni) = ParseBulletList(lines, i, indent);
+                        children.Add(nested);
+                        i = ni;
+                    }
+                    else if (IsNumberedLine(line))
+                    {
+                        var (nested, ni) = ParseNumberedList(lines, i, indent);
+                        children.Add(nested);
+                        i = ni;
+                    }
+                    else { i++; continue; }
+
+                    var last = items[^1];
+                    items[^1] = last with { Children = (last.Children?.Concat(children).ToList()) ?? children };
+                }
+                else { i++; }
+                continue;
+            }
+
+            var (numberText, itemText) = StripNumberMarker(line);
+            items.Add(new ListItem(new List<ContentElement>
+            {
+                new Paragraph(ParseInlineFormatting(itemText))
+            }, NumberText: numberText));
+            i++;
+        }
+
+        return (new NumberedList(items), i);
+    }
+
+    // --- Table parsing ---
+
+    private static Table ParseTable(List<string> tableLines)
+    {
+        var rows = new List<TableRow>();
+
+        foreach (var line in tableLines)
+        {
+            var cells = line.Trim().Trim('|').Split('|')
+                .Select(c => new TableCell(new List<ContentElement>
+                {
+                    new Paragraph(ParseInlineFormatting(c.Trim()))
+                }))
+                .ToList();
+
+            rows.Add(new TableRow(cells));
+        }
+
+        return new Table(rows);
+    }
+
+    // --- Helpers ---
+
+    private static string StripFrontmatter(string markdown)
+    {
+        if (!markdown.TrimStart().StartsWith("---")) return markdown;
+
+        var lines = markdown.Split('\n');
+        var i = 0;
+        if (lines[i].TrimEnd('\r').Trim() == "---") i++;
+        while (i < lines.Length && lines[i].TrimEnd('\r').Trim() != "---") i++;
+        if (i < lines.Length) i++; // skip closing ---
+
+        return string.Join('\n', lines[i..]);
+    }
+
+    private static bool IsBulletLine(string line)
+        => Regex.IsMatch(line.TrimStart(), @"^[-*+]\s");
+
+    private static bool IsNumberedLine(string line)
+        => Regex.IsMatch(line.TrimStart(), @"^\d+\.\s");
+
+    private static bool IsTableRow(string line)
+        => line.TrimStart().StartsWith('|') && line.TrimEnd().EndsWith('|');
+
+    private static bool IsTableSeparator(string line)
+        => Regex.IsMatch(line.Trim(), @"^\|[\s\-:|]+\|$");
+
+    private static int GetIndent(string line)
+        => line.Length - line.TrimStart().Length;
+
+    private static string StripBulletMarker(string line)
+        => Regex.Replace(line.TrimStart(), @"^[-*+]\s+", "");
+
+    private static (string numberText, string text) StripNumberMarker(string line)
+    {
+        var match = Regex.Match(line.TrimStart(), @"^(\d+\.)\s+(.*)$");
+        return match.Success
+            ? (match.Groups[1].Value, match.Groups[2].Value)
+            : ("1.", line.TrimStart());
+    }
+}

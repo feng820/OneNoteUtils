@@ -8,9 +8,19 @@ using OneNoteUtils.OneNote;
 using OneNoteUtils.Writers.Obsidian;
 
 // --- Parse CLI arguments ---
-var (notebookName, outputPath, configPath, verbose, sections, fullExport) = ParseArgs(args);
+var (notebookName, outputPath, configPath, verbose, sections, fullExport, pushPath) = ParseArgs(args);
 
-if (string.IsNullOrEmpty(notebookName) || string.IsNullOrEmpty(outputPath))
+// Push mode has different required args
+if (!string.IsNullOrEmpty(pushPath))
+{
+    if (string.IsNullOrEmpty(notebookName) || sections.Count == 0)
+    {
+        Console.Error.WriteLine("Push requires --notebook and --section. Example:");
+        Console.Error.WriteLine("  OneNoteUtils.Cli --push \"Note.md\" -n \"Team Notebook\" -s \"Shared Notes\"");
+        return 1;
+    }
+}
+else if (string.IsNullOrEmpty(notebookName) || string.IsNullOrEmpty(outputPath))
 {
     PrintUsage();
     return 1;
@@ -54,9 +64,12 @@ services.AddSingleton<INotebookWriter, ObsidianMarkdownWriter>();
 var provider = services.BuildServiceProvider();
 
 // --- Run ---
-return fullExport
-    ? RunFullExport(provider, notebookName, outputPath, options)
-    : RunSync(provider, notebookName, outputPath, options);
+if (!string.IsNullOrEmpty(pushPath))
+    return RunPush(provider, pushPath, notebookName!, sections[0], outputPath ?? ".");
+else if (fullExport)
+    return RunFullExport(provider, notebookName!, outputPath!, options);
+else
+    return RunSync(provider, notebookName!, outputPath!, options);
 
 // --- Sync logic (default) ---
 static int RunSync(ServiceProvider provider, string notebookName, string outputPath, ExportOptions options)
@@ -303,14 +316,12 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
 
 static void DeletePageFiles(SyncPageEntry entry, ILogger logger)
 {
-    // Delete the .md file
     if (!string.IsNullOrEmpty(entry.ExportedPath) && File.Exists(entry.ExportedPath))
     {
         File.Delete(entry.ExportedPath);
         logger.LogInformation("Deleted: {Path}", entry.ExportedPath);
     }
 
-    // Delete associated images/attachments
     foreach (var file in entry.ExportedFiles)
     {
         if (File.Exists(file))
@@ -321,10 +332,116 @@ static void DeletePageFiles(SyncPageEntry entry, ILogger logger)
     }
 }
 
-// --- Argument parsing ---
-static (string? notebook, string? output, string? config, bool verbose, List<string> sections, bool fullExport) ParseArgs(string[] args)
+// --- Push logic ---
+static int RunPush(ServiceProvider provider, string pushPath, string notebookName, string sectionName, string manifestDir)
 {
-    string? notebook = null, output = null, config = null;
+    var logger = provider.GetRequiredService<ILogger<Program>>();
+
+    try
+    {
+        var source = provider.GetRequiredService<IOneNoteSource>();
+
+        // Resolve markdown files to push
+        var mdFiles = new List<string>();
+        if (File.Exists(pushPath) && pushPath.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+        {
+            mdFiles.Add(Path.GetFullPath(pushPath));
+        }
+        else if (Directory.Exists(pushPath))
+        {
+            mdFiles.AddRange(Directory.GetFiles(pushPath, "*.md", SearchOption.TopDirectoryOnly)
+                .Select(Path.GetFullPath));
+        }
+        else
+        {
+            logger.LogError("Push path '{Path}' is not a .md file or directory.", pushPath);
+            return 1;
+        }
+
+        if (mdFiles.Count == 0)
+        {
+            logger.LogWarning("No .md files found at '{Path}'.", pushPath);
+            return 0;
+        }
+
+        logger.LogInformation("Pushing {Count} file(s) to '{Notebook}' / '{Section}'",
+            mdFiles.Count, notebookName, sectionName);
+
+        // Find the target section ID
+        var sectionId = source.FindSectionId(notebookName, sectionName);
+        if (sectionId == null)
+        {
+            logger.LogError("Section '{Section}' not found in notebook '{Notebook}'.", sectionName, notebookName);
+            return 1;
+        }
+
+        // Load manifest for push tracking
+        var manifest = SyncManifest.Load(manifestDir);
+        var pushed = 0;
+
+        foreach (var mdFile in mdFiles)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(mdFile);
+            logger.LogInformation("[{Current}/{Total}] Pushing: {File}",
+                ++pushed, mdFiles.Count, fileName);
+
+            try
+            {
+                var markdown = File.ReadAllText(mdFile);
+                var elements = MarkdownReader.Parse(markdown);
+
+                // Check if we've pushed this file before
+                string pageId;
+                if (manifest.Pushed.TryGetValue(mdFile, out var existing))
+                {
+                    // Update existing page
+                    pageId = existing.PageId;
+                    logger.LogDebug("Updating existing page: {PageId}", pageId);
+                }
+                else
+                {
+                    // Create new page
+                    pageId = source.CreatePage(sectionId);
+                    logger.LogDebug("Created new page: {PageId}", pageId);
+                }
+
+                // Build and push page XML
+                var pageXml = OneNoteXmlWriter.BuildPageXml(pageId, fileName, elements);
+                source.UpdatePageContent(pageXml);
+
+                // Update manifest
+                manifest.Pushed[mdFile] = new PushEntry
+                {
+                    PageId = pageId,
+                    NotebookName = notebookName,
+                    SectionName = sectionName,
+                    LastPushed = DateTime.UtcNow
+                };
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Failed to push '{File}': {Error}", fileName, ex.Message);
+            }
+        }
+
+        manifest.Save(manifestDir);
+
+        logger.LogInformation("Push complete. {Count} file(s) pushed.", pushed);
+
+        if (source is IDisposable disposable) disposable.Dispose();
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        logger.LogCritical(ex, "Push failed: {Error}", ex.Message);
+        return 1;
+    }
+}
+
+// --- Argument parsing ---
+static (string? notebook, string? output, string? config, bool verbose, List<string> sections, bool fullExport, string? pushPath) ParseArgs(string[] args)
+{
+    string? notebook = null, output = null, config = null, pushPath = null;
     var verbose = false;
     var fullExport = false;
     var sections = new List<string>();
@@ -345,6 +462,9 @@ static (string? notebook, string? output, string? config, bool verbose, List<str
             case "--section" or "-s":
                 if (i + 1 < args.Length) sections.Add(args[++i]);
                 break;
+            case "--push":
+                if (i + 1 < args.Length) pushPath = args[++i];
+                break;
             case "--full":
                 fullExport = true;
                 break;
@@ -358,37 +478,42 @@ static (string? notebook, string? output, string? config, bool verbose, List<str
         }
     }
 
-    return (notebook, output, config, verbose, sections, fullExport);
+    return (notebook, output, config, verbose, sections, fullExport, pushPath);
 }
 
 static void PrintUsage()
 {
     Console.WriteLine("""
-        OneNoteUtils - Export OneNote notebooks to Obsidian Markdown
+        OneNoteUtils - Sync OneNote notebooks with Obsidian Markdown
 
-        Usage:
-          OneNoteUtils.Cli --notebook <name> --output <path> [options]
+        Usage (sync/export):
+          OneNoteUtils.Cli -n <notebook> -o <path> [options]
 
-        Required:
+        Usage (push to OneNote):
+          OneNoteUtils.Cli --push <file-or-folder> -n <notebook> -s <section>
+
+        Required (sync/export):
           -n, --notebook <name>    Notebook name or folder path
           -o, --output <path>      Output directory
 
+        Required (push):
+          --push <path>            .md file or folder to push to OneNote
+          -n, --notebook <name>    Target notebook name
+          -s, --section <name>     Target section name
+
         Options:
-          -s, --section <name>     Only export this section (repeatable)
+          -s, --section <name>     Filter sections for sync (repeatable)
               --full               Force full export (skip incremental sync)
           -c, --config <path>      Path to a JSON config file (default: appsettings.json)
           -v, --verbose            Enable debug logging
           -h, --help               Show this help message
 
-        Sync behavior:
-          By default, only new/modified/deleted pages are synced (incremental).
-          A .onenote-sync.json manifest tracks what was last synced.
-          Use --full to force a clean re-export of everything.
-
         Examples:
           OneNoteUtils.Cli -n "My Notebook" -o C:\Export
           OneNoteUtils.Cli -n "My Notebook" -o C:\Export -s "Daily Notes"
           OneNoteUtils.Cli -n "My Notebook" -o C:\Export --full
+          OneNoteUtils.Cli --push "C:\Vault\Note.md" -n "Team Notebook" -s "Shared"
+          OneNoteUtils.Cli --push "C:\Vault\Notes\" -n "Team Notebook" -s "Shared"
         """);
 }
 
