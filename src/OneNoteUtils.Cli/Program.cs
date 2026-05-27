@@ -38,13 +38,13 @@ var config = configBuilder.Build();
 
 var options = new ExportOptions
 {
-    NotebookIdentifier = notebookName,
-    OutputPath = outputPath
+    NotebookIdentifier = notebookName ?? "",
+    OutputPath = outputPath ?? ""
 };
 
 config.GetSection("ExportOptions").Bind(options);
-options.NotebookIdentifier = notebookName;
-options.OutputPath = outputPath;
+options.NotebookIdentifier = notebookName ?? "";
+options.OutputPath = outputPath ?? "";
 if (sections.Count > 0)
     options.SectionFilter = sections;
 
