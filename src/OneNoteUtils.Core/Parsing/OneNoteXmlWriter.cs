@@ -33,9 +33,17 @@ public static class OneNoteXmlWriter
         sb.Append("<one:Outline>");
         sb.Append("<one:OEChildren>");
 
-        foreach (var element in elements)
+        for (int i = 0; i < elements.Count; i++)
         {
-            WriteElement(sb, element);
+            // Add a blank line before headings (except the first element)
+            if (i > 0 && elements[i] is Heading)
+                WriteBlankLine(sb);
+
+            WriteElement(sb, elements[i]);
+
+            // Add a blank line after headings, images, code blocks, tables, and horizontal rules
+            if (elements[i] is Heading or Image or CodeBlock or Table or HorizontalRule)
+                WriteBlankLine(sb);
         }
 
         sb.Append("</one:OEChildren>");
@@ -43,6 +51,13 @@ public static class OneNoteXmlWriter
         sb.Append("</one:Page>");
 
         return sb.ToString();
+    }
+
+    private static void WriteBlankLine(StringBuilder sb)
+    {
+        sb.Append("<one:OE>");
+        sb.Append("<one:T><![CDATA[ ]]></one:T>");
+        sb.Append("</one:OE>");
     }
 
     private static void WriteElement(StringBuilder sb, ContentElement element)
@@ -56,12 +71,16 @@ public static class OneNoteXmlWriter
                 WriteParagraph(sb, paragraph);
                 break;
             case BulletList bulletList:
+                sb.Append("<one:OE><one:OEChildren>");
                 foreach (var item in bulletList.Items)
                     WriteListItem(sb, item, isBullet: true);
+                sb.Append("</one:OEChildren></one:OE>");
                 break;
             case NumberedList numberedList:
+                sb.Append("<one:OE><one:OEChildren>");
                 foreach (var item in numberedList.Items)
                     WriteListItem(sb, item, isBullet: false);
+                sb.Append("</one:OEChildren></one:OE>");
                 break;
             case Table table:
                 WriteTable(sb, table);
