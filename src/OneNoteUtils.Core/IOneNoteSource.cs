@@ -27,6 +27,11 @@ public interface IOneNoteSource
     void UpdatePageContent(string pageXml);
 
     /// <summary>
+    /// Deletes a content object from a page (e.g., an Outline).
+    /// </summary>
+    void DeletePageContent(string pageId, string objectId);
+
+    /// <summary>
     /// Finds a section ID by notebook name and section name.
     /// Returns null if not found.
     /// </summary>

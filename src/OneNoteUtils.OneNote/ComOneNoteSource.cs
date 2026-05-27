@@ -74,7 +74,16 @@ public class ComOneNoteSource : IOneNoteSource, IDisposable
         RunOnStaThread(() =>
         {
             _app!.UpdatePageContent(pageXml, 0, Interop.XMLSchema.Current, true);
-            return 0; // dummy return for RunOnStaThread<T>
+            return 0;
+        });
+    }
+
+    public void DeletePageContent(string pageId, string objectId)
+    {
+        RunOnStaThread(() =>
+        {
+            _app!.DeletePageContent(pageId, objectId, 0, true);
+            return 0;
         });
     }
 

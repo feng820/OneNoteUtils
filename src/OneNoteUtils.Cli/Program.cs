@@ -394,9 +394,10 @@ static int RunPush(ServiceProvider provider, string pushPath, string notebookNam
                 string pageId;
                 if (manifest.Pushed.TryGetValue(mdFile, out var existing))
                 {
-                    // Update existing page
+                    // Update existing page — clear existing outlines first
                     pageId = existing.PageId;
                     logger.LogDebug("Updating existing page: {PageId}", pageId);
+                    ClearPageOutlines(source, pageId, logger);
                 }
                 else
                 {
@@ -435,6 +436,33 @@ static int RunPush(ServiceProvider provider, string pushPath, string notebookNam
     {
         logger.LogCritical(ex, "Push failed: {Error}", ex.Message);
         return 1;
+    }
+}
+
+static void ClearPageOutlines(IOneNoteSource source, string pageId, ILogger logger)
+{
+    try
+    {
+        var pageXml = source.GetPageContentXml(pageId);
+        var doc = new System.Xml.XmlDocument();
+        doc.LoadXml(pageXml);
+
+        var outlines = doc.SelectNodes("//*[local-name()='Outline']");
+        if (outlines == null) return;
+
+        foreach (System.Xml.XmlElement outline in outlines)
+        {
+            var objectId = outline.GetAttribute("objectID");
+            if (!string.IsNullOrEmpty(objectId))
+            {
+                source.DeletePageContent(pageId, objectId);
+                logger.LogDebug("Cleared outline: {ObjectId}", objectId);
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning("Failed to clear existing outlines: {Error}", ex.Message);
     }
 }
 
