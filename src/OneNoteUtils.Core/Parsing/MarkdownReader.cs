@@ -13,7 +13,9 @@ public static class MarkdownReader
     /// <summary>
     /// Parses a markdown string into content elements, stripping YAML frontmatter.
     /// </summary>
-    public static IReadOnlyList<ContentElement> Parse(string markdown)
+    /// <param name="markdown">The markdown text to parse.</param>
+    /// <param name="basePath">Base directory for resolving relative image paths. Null to skip image loading.</param>
+    public static IReadOnlyList<ContentElement> Parse(string markdown, string? basePath = null)
     {
         var lines = StripFrontmatter(markdown).Split('\n')
             .Select(l => l.TrimEnd('\r'))
@@ -40,6 +42,53 @@ public static class MarkdownReader
                 var level = headingMatch.Groups[1].Value.Length;
                 var text = headingMatch.Groups[2].Value.Trim();
                 elements.Add(new Heading(level, text));
+                i++;
+                continue;
+            }
+
+            // Fenced code block
+            if (line.TrimStart().StartsWith("```"))
+            {
+                var lang = line.TrimStart().Length > 3
+                    ? line.TrimStart()[3..].Trim()
+                    : null;
+                if (string.IsNullOrEmpty(lang)) lang = null;
+
+                i++;
+                var codeLines = new List<string>();
+                while (i < lines.Count && !lines[i].TrimStart().StartsWith("```"))
+                {
+                    codeLines.Add(lines[i]);
+                    i++;
+                }
+                if (i < lines.Count) i++; // skip closing ```
+
+                elements.Add(new CodeBlock(string.Join("\n", codeLines), lang));
+                continue;
+            }
+
+            // Horizontal rule
+            if (Regex.IsMatch(line.Trim(), @"^[-*_]{3,}$"))
+            {
+                elements.Add(new HorizontalRule());
+                i++;
+                continue;
+            }
+
+            // Image — ![[wikilink]] or ![alt](path)
+            var wikiImageMatch = Regex.Match(line.Trim(), @"^!\[\[([^\]]+)\]\]$");
+            var mdImageMatch = Regex.Match(line.Trim(), @"^!\[([^\]]*)\]\(([^)]+)\)$");
+            if (wikiImageMatch.Success)
+            {
+                var imagePath = wikiImageMatch.Groups[1].Value;
+                elements.Add(CreateImageFromPath(imagePath, basePath));
+                i++;
+                continue;
+            }
+            if (mdImageMatch.Success)
+            {
+                var imagePath = mdImageMatch.Groups[2].Value;
+                elements.Add(CreateImageFromPath(imagePath, basePath));
                 i++;
                 continue;
             }
@@ -301,5 +350,28 @@ public static class MarkdownReader
         return match.Success
             ? (match.Groups[1].Value, match.Groups[2].Value)
             : ("1.", line.TrimStart());
+    }
+
+    private static Image CreateImageFromPath(string imagePath, string? basePath)
+    {
+        var format = Path.GetExtension(imagePath).TrimStart('.').ToLowerInvariant();
+        if (string.IsNullOrEmpty(format)) format = "png";
+
+        var fileName = Path.GetFileName(imagePath);
+
+        return new Image(
+            fileName,
+            format,
+            () =>
+            {
+                // Try to resolve and load the image file
+                if (basePath == null) return null;
+
+                var fullPath = Path.IsPathRooted(imagePath)
+                    ? imagePath
+                    : Path.Combine(basePath, imagePath);
+
+                return File.Exists(fullPath) ? File.ReadAllBytes(fullPath) : null;
+            });
     }
 }

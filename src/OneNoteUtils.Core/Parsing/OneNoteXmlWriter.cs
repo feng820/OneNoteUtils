@@ -66,6 +66,18 @@ public static class OneNoteXmlWriter
             case Table table:
                 WriteTable(sb, table);
                 break;
+            case Image image:
+                WriteImage(sb, image);
+                break;
+            case CodeBlock codeBlock:
+                WriteCodeBlock(sb, codeBlock);
+                break;
+            case HorizontalRule:
+                // OneNote has no native horizontal rule; render as a styled separator line
+                sb.Append("<one:OE>");
+                sb.Append("<one:T><![CDATA[<span style=\"font-size:1pt\">────────────────────────────────────────</span>]]></one:T>");
+                sb.Append("</one:OE>");
+                break;
         }
     }
 
@@ -99,6 +111,36 @@ public static class OneNoteXmlWriter
         }
         sb.Append("]]></one:T>");
         sb.Append("</one:OE>");
+    }
+
+    private static void WriteImage(StringBuilder sb, Image image)
+    {
+        var bytes = image.LoadBytes();
+        if (bytes == null) return;
+
+        var base64 = Convert.ToBase64String(bytes);
+        var format = image.Format.ToLowerInvariant();
+        if (string.IsNullOrEmpty(format)) format = "png";
+
+        sb.Append("<one:OE>");
+        sb.Append($"<one:Image format=\"{format}\">");
+        sb.Append($"<one:Data>{base64}</one:Data>");
+        sb.Append("</one:Image>");
+        sb.Append("</one:OE>");
+    }
+
+    private static void WriteCodeBlock(StringBuilder sb, CodeBlock codeBlock)
+    {
+        // Render as monospace-font paragraphs with a light background hint
+        var codeLines = codeBlock.Code.Split('\n');
+        foreach (var line in codeLines)
+        {
+            sb.Append("<one:OE>");
+            sb.Append("<one:T><![CDATA[<span style=\"font-family:Consolas,monospace;font-size:10pt\">");
+            sb.Append(HtmlEncode(line));
+            sb.Append("</span>]]></one:T>");
+            sb.Append("</one:OE>");
+        }
     }
 
     private static void WriteRun(StringBuilder sb, Run run)

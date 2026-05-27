@@ -68,3 +68,13 @@ public record Image(
 public record Attachment(
     string PreferredName,
     Func<byte[]?> LoadBytes) : ContentElement;
+
+/// <summary>
+/// A fenced code block with optional language hint.
+/// </summary>
+public record CodeBlock(string Code, string? Language = null) : ContentElement;
+
+/// <summary>
+/// A horizontal rule / thematic break.
+/// </summary>
+public record HorizontalRule() : ContentElement;

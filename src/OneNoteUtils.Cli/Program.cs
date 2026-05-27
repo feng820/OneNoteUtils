@@ -388,7 +388,7 @@ static int RunPush(ServiceProvider provider, string pushPath, string notebookNam
             try
             {
                 var markdown = File.ReadAllText(mdFile);
-                var elements = MarkdownReader.Parse(markdown);
+                var elements = MarkdownReader.Parse(markdown, Path.GetDirectoryName(mdFile));
 
                 // Check if we've pushed this file before
                 string pageId;

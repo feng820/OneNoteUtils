@@ -245,6 +245,19 @@ public class ObsidianMarkdownWriter : INotebookWriter
                     sb.AppendLine();
                 }
                 break;
+
+            case CodeBlock codeBlock:
+                var lang = codeBlock.Language != null ? codeBlock.Language : "";
+                sb.AppendLine($"```{lang}");
+                sb.AppendLine(codeBlock.Code);
+                sb.AppendLine("```");
+                sb.AppendLine();
+                break;
+
+            case HorizontalRule:
+                sb.AppendLine("---");
+                sb.AppendLine();
+                break;
         }
     }
 
