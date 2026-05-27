@@ -82,7 +82,7 @@ public static class HtmlFragmentParser
             {
                 var text = child.Value ?? "";
                 if (text.Length > 0)
-                    runs.Add(new Run(text, bold, italic, strikethrough, underline, href));
+                    runs.Add(new Run(text, Bold: bold, Italic: italic, Strikethrough: strikethrough, Underline: underline, HrefUrl: href));
             }
             else if (child.NodeType == XmlNodeType.Element)
             {

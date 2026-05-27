@@ -92,10 +92,12 @@ public static class OneNoteXmlWriter
                 WriteCodeBlock(sb, codeBlock);
                 break;
             case HorizontalRule:
-                // OneNote has no native horizontal rule; render as a styled separator line
                 sb.Append("<one:OE>");
-                sb.Append("<one:T><![CDATA[<span style=\"font-size:1pt\">────────────────────────────────────────</span>]]></one:T>");
+                sb.Append("<one:T><![CDATA[<span style=\"font-size:8pt;color:#888888\">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>]]></one:T>");
                 sb.Append("</one:OE>");
+                break;
+            case Blockquote blockquote:
+                WriteBlockquote(sb, blockquote);
                 break;
         }
     }
@@ -150,15 +152,48 @@ public static class OneNoteXmlWriter
 
     private static void WriteCodeBlock(StringBuilder sb, CodeBlock codeBlock)
     {
-        // Render as monospace-font paragraphs with a light background hint
+        // Wrap code in a single-column table to create a bordered box
         var codeLines = codeBlock.Code.Split('\n');
+
+        sb.Append("<one:OE>");
+        sb.Append("<one:Table bordersVisible=\"true\">");
+        sb.Append("<one:Columns><one:Column index=\"0\" width=\"600\"/></one:Columns>");
+        sb.Append("<one:Row><one:Cell>");
+        sb.Append("<one:OEChildren>");
+
         foreach (var line in codeLines)
         {
             sb.Append("<one:OE>");
             sb.Append("<one:T><![CDATA[<span style=\"font-family:Consolas,monospace;font-size:10pt\">");
-            sb.Append(HtmlEncode(line));
+            sb.Append(HtmlEncode(string.IsNullOrEmpty(line) ? " " : line));
             sb.Append("</span>]]></one:T>");
             sb.Append("</one:OE>");
+        }
+
+        sb.Append("</one:OEChildren>");
+        sb.Append("</one:Cell></one:Row>");
+        sb.Append("</one:Table>");
+        sb.Append("</one:OE>");
+    }
+
+    private static void WriteBlockquote(StringBuilder sb, Blockquote blockquote)
+    {
+        // Render blockquote as indented italic text
+        foreach (var element in blockquote.Elements)
+        {
+            if (element is Paragraph p)
+            {
+                sb.Append("<one:OE>");
+                sb.Append("<one:T><![CDATA[<span style=\"font-style:italic;color:#666666\">▎ ");
+                foreach (var run in p.Runs)
+                    WriteRun(sb, run);
+                sb.Append("</span>]]></one:T>");
+                sb.Append("</one:OE>");
+            }
+            else
+            {
+                WriteElement(sb, element);
+            }
         }
     }
 
@@ -166,6 +201,12 @@ public static class OneNoteXmlWriter
     {
         var text = HtmlEncode(run.Text);
         var hasStyle = run.Bold || run.Italic || run.Strikethrough || run.Underline;
+
+        if (run.Code)
+        {
+            sb.Append($"<span style=\"font-family:Consolas,monospace;background-color:#f0f0f0\">{text}</span>");
+            return;
+        }
 
         if (run.HrefUrl != null)
         {

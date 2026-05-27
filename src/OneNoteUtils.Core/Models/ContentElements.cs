@@ -25,6 +25,7 @@ public record Run(
     bool Italic = false,
     bool Strikethrough = false,
     bool Underline = false,
+    bool Code = false,
     string? HrefUrl = null);
 
 /// <summary>
@@ -78,3 +79,8 @@ public record CodeBlock(string Code, string? Language = null) : ContentElement;
 /// A horizontal rule / thematic break.
 /// </summary>
 public record HorizontalRule() : ContentElement;
+
+/// <summary>
+/// A blockquote containing nested content elements.
+/// </summary>
+public record Blockquote(IReadOnlyList<ContentElement> Elements) : ContentElement;

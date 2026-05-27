@@ -407,7 +407,8 @@ static int RunPush(ServiceProvider provider, string pushPath, string notebookNam
                 }
 
                 // Build and push page XML
-                var pageXml = OneNoteXmlWriter.BuildPageXml(pageId, fileName, elements);
+                var title = MarkdownReader.ExtractTitle(markdown) ?? fileName;
+                var pageXml = OneNoteXmlWriter.BuildPageXml(pageId, title, elements);
                 source.UpdatePageContent(pageXml);
 
                 // Update manifest

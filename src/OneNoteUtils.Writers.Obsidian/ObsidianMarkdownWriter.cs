@@ -258,6 +258,20 @@ public class ObsidianMarkdownWriter : INotebookWriter
                 sb.AppendLine("---");
                 sb.AppendLine();
                 break;
+
+            case Blockquote blockquote:
+                foreach (var bqElement in blockquote.Elements)
+                {
+                    if (bqElement is Paragraph bqPara)
+                    {
+                        sb.Append("> ");
+                        foreach (var run in bqPara.Runs)
+                            sb.Append(FormatRun(run));
+                        sb.AppendLine();
+                    }
+                }
+                sb.AppendLine();
+                break;
         }
     }
 
@@ -400,6 +414,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
         var text = run.Text;
         if (string.IsNullOrEmpty(text)) return "";
 
+        if (run.Code) return $"`{text}`";
         if (run.Strikethrough && text.Trim().Length > 0) text = $"~~{text}~~";
         if (run.Bold && text.Trim().Length > 0) text = $"**{text}**";
         if (run.Italic && text.Trim().Length > 0) text = $"*{text}*";

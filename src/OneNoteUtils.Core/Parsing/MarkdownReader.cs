@@ -11,6 +11,17 @@ namespace OneNoteUtils.Core.Parsing;
 public static class MarkdownReader
 {
     /// <summary>
+    /// Extracts the page title from markdown. Uses the first h1 heading if present,
+    /// otherwise returns null.
+    /// </summary>
+    public static string? ExtractTitle(string markdown)
+    {
+        var stripped = StripFrontmatter(markdown);
+        var match = Regex.Match(stripped, @"^#\s+(.+)$", RegexOptions.Multiline);
+        return match.Success ? match.Groups[1].Value.Trim() : null;
+    }
+
+    /// <summary>
     /// Parses a markdown string into content elements, stripping YAML frontmatter.
     /// </summary>
     /// <param name="markdown">The markdown text to parse.</param>
@@ -126,7 +137,22 @@ public static class MarkdownReader
                 continue;
             }
 
-            // Paragraph — collect consecutive non-blank, non-special lines
+            // Blockquote
+            if (line.TrimStart().StartsWith("> ") || line.TrimStart() == ">")
+            {
+                var quoteLines = new List<string>();
+                while (i < lines.Count && (lines[i].TrimStart().StartsWith("> ") || lines[i].TrimStart() == ">"))
+                {
+                    var quoteLine = lines[i].TrimStart();
+                    quoteLines.Add(quoteLine.Length > 2 ? quoteLine[2..] : "");
+                    i++;
+                }
+                var innerElements = Parse(string.Join("\n", quoteLines), basePath);
+                elements.Add(new Blockquote(innerElements));
+                continue;
+            }
+
+            // Paragraph
             var paragraphText = line;
             i++;
             elements.Add(new Paragraph(ParseInlineFormatting(paragraphText)));
@@ -147,7 +173,8 @@ public static class MarkdownReader
         if (string.IsNullOrEmpty(text)) return [];
 
         var runs = new List<Run>();
-        var pattern = @"(\*\*\*(.+?)\*\*\*)" +           // ***bold italic***
+        var pattern = @"(`([^`]+)`)" +                     // `inline code`
+                      @"|(\*\*\*(.+?)\*\*\*)" +           // ***bold italic***
                       @"|(\*\*(.+?)\*\*)" +               // **bold**
                       @"|(\*(.+?)\*)" +                    // *italic*
                       @"|(~~(.+?)~~)" +                    // ~~strikethrough~~
@@ -161,18 +188,20 @@ public static class MarkdownReader
             if (match.Index > pos)
                 runs.Add(new Run(text[pos..match.Index]));
 
-            if (match.Groups[2].Success) // ***bold italic***
-                runs.Add(new Run(match.Groups[2].Value, Bold: true, Italic: true));
-            else if (match.Groups[4].Success) // **bold**
-                runs.Add(new Run(match.Groups[4].Value, Bold: true));
-            else if (match.Groups[6].Success) // *italic*
-                runs.Add(new Run(match.Groups[6].Value, Italic: true));
-            else if (match.Groups[8].Success) // ~~strikethrough~~
-                runs.Add(new Run(match.Groups[8].Value, Strikethrough: true));
-            else if (match.Groups[10].Success) // [text](url)
-                runs.Add(new Run(match.Groups[10].Value, HrefUrl: match.Groups[11].Value));
-            else if (match.Groups[13].Success) // <u>underline</u>
-                runs.Add(new Run(match.Groups[13].Value, Underline: true));
+            if (match.Groups[2].Success) // `inline code`
+                runs.Add(new Run(match.Groups[2].Value, Code: true));
+            else if (match.Groups[4].Success) // ***bold italic***
+                runs.Add(new Run(match.Groups[4].Value, Bold: true, Italic: true));
+            else if (match.Groups[6].Success) // **bold**
+                runs.Add(new Run(match.Groups[6].Value, Bold: true));
+            else if (match.Groups[8].Success) // *italic*
+                runs.Add(new Run(match.Groups[8].Value, Italic: true));
+            else if (match.Groups[10].Success) // ~~strikethrough~~
+                runs.Add(new Run(match.Groups[10].Value, Strikethrough: true));
+            else if (match.Groups[12].Success) // [text](url)
+                runs.Add(new Run(match.Groups[12].Value, HrefUrl: match.Groups[13].Value));
+            else if (match.Groups[15].Success) // <u>underline</u>
+                runs.Add(new Run(match.Groups[15].Value, Underline: true));
 
             pos = match.Index + match.Length;
         }
