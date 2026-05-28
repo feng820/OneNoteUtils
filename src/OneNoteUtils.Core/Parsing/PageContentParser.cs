@@ -30,87 +30,33 @@ public static class PageContentParser
 
     /// <summary>
     /// Groups consecutive Paragraph elements where all runs are Code into CodeBlock elements.
-    /// Also detects Kusto query patterns in non-code paragraphs.
     /// </summary>
     private static IReadOnlyList<ContentElement> GroupCodeBlocks(IReadOnlyList<ContentElement> elements)
     {
         var result = new List<ContentElement>();
         var codeLines = new List<string>();
-        var isKusto = false;
 
         foreach (var element in elements)
         {
-            var text = element is Paragraph p
-                ? string.Concat(p.Runs.Select(r => r.Text))
-                : null;
-
-            var isCodeParagraph = element is Paragraph cp && cp.Runs.Count > 0 && cp.Runs.All(r => r.Code);
-            var isKustoLine = text != null && IsKustoLine(text);
-
-            if (isCodeParagraph || (isKustoLine && codeLines.Count > 0))
+            if (element is Paragraph p && p.Runs.Count > 0 && p.Runs.All(r => r.Code))
             {
-                // Continue or start a code block
-                if (isKustoLine && codeLines.Count == 0) isKusto = true;
-                codeLines.Add(text!);
-            }
-            else if (isKustoLine && codeLines.Count == 0)
-            {
-                // Potential start of a Kusto block — look ahead to confirm
-                // Only start if next elements also look like Kusto
-                codeLines.Add(text!);
-                isKusto = true;
+                codeLines.Add(string.Concat(p.Runs.Select(r => r.Text)));
             }
             else
             {
-                FlushCodeLines(result, codeLines, isKusto);
-                isKusto = false;
+                if (codeLines.Count > 0)
+                {
+                    result.Add(new CodeBlock(string.Join("\n", codeLines)));
+                    codeLines.Clear();
+                }
                 result.Add(element);
             }
         }
 
-        FlushCodeLines(result, codeLines, isKusto);
+        if (codeLines.Count > 0)
+            result.Add(new CodeBlock(string.Join("\n", codeLines)));
 
         return result;
-    }
-
-    private static void FlushCodeLines(List<ContentElement> result, List<string> codeLines, bool isKusto)
-    {
-        if (codeLines.Count > 0)
-        {
-            // Only treat as Kusto if we have at least 2 lines with pipe operators
-            var pipeLines = codeLines.Count(l => l.TrimStart().StartsWith("| ") || l.TrimStart().StartsWith("|"));
-            var lang = (isKusto && pipeLines >= 1) ? "kql" : null;
-            result.Add(new CodeBlock(string.Join("\n", codeLines), lang));
-            codeLines.Clear();
-        }
-    }
-
-    /// <summary>
-    /// Detects lines that look like Kusto/KQL query syntax.
-    /// </summary>
-    private static bool IsKustoLine(string line)
-    {
-        var trimmed = line.Trim();
-        if (string.IsNullOrEmpty(trimmed)) return false;
-
-        // Pipe operators (| where, | summarize, | project, etc.)
-        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed,
-            @"^\|\s*(where|summarize|project|extend|join|render|take|top|sort|order|count|distinct|union|let|parse|mv-expand|evaluate|invoke|lookup|make-series|sample)\b",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            return true;
-
-        // Variable declarations: let varName = ...
-        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed,
-            @"^let\s+\w+\s*="))
-            return true;
-
-        // Table names followed by nothing (start of a query)
-        // Only match if it looks like a PascalCase table name
-        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed,
-            @"^[A-Z][a-zA-Z0-9_]*[a-z][a-zA-Z0-9_]*$") && trimmed.Length > 3)
-            return true;
-
-        return false;
     }
 
     private static Dictionary<string, byte[]> ExtractBinaryData(XmlDocument doc)
