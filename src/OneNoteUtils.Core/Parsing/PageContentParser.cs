@@ -46,6 +46,12 @@ public static class PageContentParser
                 var allCode = p.Runs.All(r => r.Code);
                 var anyCode = p.Runs.Any(r => r.Code);
 
+                // Empty/whitespace paragraph inside a code block — skip (don't break the block)
+                if (codeLines.Count > 0 && string.IsNullOrWhiteSpace(text) && IsShortGapBeforeMoreCode(elements, idx))
+                {
+                    continue;
+                }
+
                 if (allCode)
                 {
                     codeLines.Add(text);
@@ -60,8 +66,6 @@ public static class PageContentParser
                 }
                 else if (codeLines.Count > 0 && IsShortGapBeforeMoreCode(elements, idx))
                 {
-                    // Non-code line but more code follows — bridge the gap
-                    // (e.g. a table name like "IfxUlsEvents" between let/pipe blocks)
                     codeLines.Add(text);
                 }
                 else
@@ -70,6 +74,11 @@ public static class PageContentParser
                         FlushCodeLines(result, codeLines);
                     result.Add(element);
                 }
+            }
+            else if (element is Paragraph emptyP && emptyP.Runs.Count == 0 && codeLines.Count > 0)
+            {
+                // Empty paragraph inside a code block — skip
+                continue;
             }
             else
             {
@@ -138,14 +147,16 @@ public static class PageContentParser
     /// </summary>
     private static bool IsShortGapBeforeMoreCode(IReadOnlyList<ContentElement> elements, int currentIndex)
     {
-        // Look ahead up to 2 elements for code
-        for (var i = currentIndex + 1; i < elements.Count && i <= currentIndex + 2; i++)
+        // Look ahead up to 5 elements for code (accounts for blank paragraphs between lines)
+        for (var i = currentIndex + 1; i < elements.Count && i <= currentIndex + 5; i++)
         {
             if (elements[i] is Paragraph np && np.Runs.Count > 0)
             {
                 var nextText = string.Concat(np.Runs.Select(r => r.Text));
+                if (string.IsNullOrWhiteSpace(nextText)) continue; // skip blanks
                 if (np.Runs.All(r => r.Code) || np.Runs.Any(r => r.Code) || IsCodeContinuation(nextText))
                     return true;
+                return false; // non-code, non-blank — stop looking
             }
         }
         return false;
