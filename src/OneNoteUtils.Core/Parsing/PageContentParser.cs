@@ -32,7 +32,7 @@ public static class PageContentParser
     /// Groups consecutive Paragraph elements where all runs are Code into CodeBlock elements.
     /// Also continues code blocks across comment lines and lines that look like code context.
     /// </summary>
-    private static IReadOnlyList<ContentElement> GroupCodeBlocks(IReadOnlyList<ContentElement> elements)
+    public static IReadOnlyList<ContentElement> GroupCodeBlocks(IReadOnlyList<ContentElement> elements)
     {
         var result = new List<ContentElement>();
         var codeLines = new List<string>();

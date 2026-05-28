@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using OneNoteUtils.Core;
 using OneNoteUtils.Core.Models;
+using OneNoteUtils.Core.Parsing;
 
 namespace OneNoteUtils.Writers.Obsidian;
 
@@ -358,7 +359,9 @@ public class ObsidianMarkdownWriter : INotebookWriter
             sb.AppendLine();
             foreach (var row in table.Rows)
             {
-                foreach (var element in row.Cells[0].Elements)
+                // Run code block grouping on cell content (Kusto queries inside bordered boxes)
+                var cellElements = PageContentParser.GroupCodeBlocks(row.Cells[0].Elements);
+                foreach (var element in cellElements)
                 {
                     WriteContentElement(sb, element, 0, pageFileBaseName, pageOutFolder, ref imageIndex);
                 }
