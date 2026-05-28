@@ -30,6 +30,7 @@ public static class PageContentParser
 
     /// <summary>
     /// Groups consecutive Paragraph elements where all runs are Code into CodeBlock elements.
+    /// Also continues code blocks across comment lines and lines that look like code context.
     /// </summary>
     private static IReadOnlyList<ContentElement> GroupCodeBlocks(IReadOnlyList<ContentElement> elements)
     {
@@ -38,9 +39,31 @@ public static class PageContentParser
 
         foreach (var element in elements)
         {
-            if (element is Paragraph p && p.Runs.Count > 0 && p.Runs.All(r => r.Code))
+            if (element is Paragraph p && p.Runs.Count > 0)
             {
-                codeLines.Add(string.Concat(p.Runs.Select(r => r.Text)));
+                var text = string.Concat(p.Runs.Select(r => r.Text));
+                var allCode = p.Runs.All(r => r.Code);
+                var anyCode = p.Runs.Any(r => r.Code);
+
+                if (allCode)
+                {
+                    // Fully monospace paragraph — definitely code
+                    codeLines.Add(text);
+                }
+                else if (codeLines.Count > 0 && (anyCode || IsCodeContinuation(text)))
+                {
+                    // Inside a code block and this line has some code or looks like code
+                    codeLines.Add(text);
+                }
+                else
+                {
+                    if (codeLines.Count > 0)
+                    {
+                        result.Add(new CodeBlock(string.Join("\n", codeLines)));
+                        codeLines.Clear();
+                    }
+                    result.Add(element);
+                }
             }
             else
             {
@@ -57,6 +80,27 @@ public static class PageContentParser
             result.Add(new CodeBlock(string.Join("\n", codeLines)));
 
         return result;
+    }
+
+    /// <summary>
+    /// Detects lines that should continue a code block even without monospace font.
+    /// Matches comments, Kusto operators, variable declarations, and similar patterns.
+    /// </summary>
+    private static bool IsCodeContinuation(string line)
+    {
+        var trimmed = line.Trim();
+        if (string.IsNullOrEmpty(trimmed)) return false;
+
+        // Comments
+        if (trimmed.StartsWith("//")) return true;
+
+        // Kusto pipe operators
+        if (trimmed.StartsWith("| ") || trimmed.StartsWith("|")) return true;
+
+        // Variable declarations
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^(let|var|const)\s+\w+\s*=")) return true;
+
+        return false;
     }
 
     private static Dictionary<string, byte[]> ExtractBinaryData(XmlDocument doc)
