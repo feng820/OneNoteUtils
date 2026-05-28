@@ -128,6 +128,12 @@ public static class PageContentParser
         // Kusto pipe operators
         if (trimmed.StartsWith("| ") || trimmed.StartsWith("|")) return true;
 
+        // Kusto keywords that may appear at line start (continuation of a pipe)
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed,
+            @"^(where|summarize|project|extend|join|render|take|top|sort|order|count|distinct|union|parse|mv-expand|evaluate|invoke|lookup|make-series|sample|limit)\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            return true;
+
         // Variable declarations
         if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^(let|var|const)\s+\w+\s*=")) return true;
 
