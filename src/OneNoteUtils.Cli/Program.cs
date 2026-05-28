@@ -244,6 +244,14 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
         logger.LogInformation("Found notebook: {Name} ({SectionCount} sections)",
             notebook.Name, notebook.Sections.Count);
 
+        // Clean the notebook output folder for a fresh export
+        var notebookFolder = Path.Combine(outputPath, OneNoteUtils.Core.FileNameUtils.SanitizeFileBaseName(notebook.Name));
+        if (Directory.Exists(notebookFolder))
+        {
+            logger.LogInformation("Cleaning existing output folder...");
+            Directory.Delete(notebookFolder, recursive: true);
+        }
+
         // 2. Parse page content for each page
         var totalPages = 0;
         var failedPages = 0;
