@@ -37,8 +37,9 @@ public static class PageContentParser
         var result = new List<ContentElement>();
         var codeLines = new List<string>();
 
-        foreach (var element in elements)
+        for (var idx = 0; idx < elements.Count; idx++)
         {
+            var element = elements[idx];
             if (element is Paragraph p && p.Runs.Count > 0)
             {
                 var text = string.Concat(p.Runs.Select(r => r.Text));
@@ -47,34 +48,33 @@ public static class PageContentParser
 
                 if (allCode)
                 {
-                    // Fully monospace paragraph — definitely code
                     codeLines.Add(text);
                 }
                 else if (codeLines.Count > 0 && (anyCode || IsCodeContinuation(text)))
                 {
-                    // Inside a code block and this line has some code or looks like code
                     codeLines.Add(text);
                 }
                 else if (IsCodeContinuation(text))
                 {
-                    // Not yet in a code block, but this looks like code — start one
+                    codeLines.Add(text);
+                }
+                else if (codeLines.Count > 0 && IsShortGapBeforeMoreCode(elements, idx))
+                {
+                    // Non-code line but more code follows — bridge the gap
+                    // (e.g. a table name like "IfxUlsEvents" between let/pipe blocks)
                     codeLines.Add(text);
                 }
                 else
                 {
                     if (codeLines.Count > 0)
-                    {
                         FlushCodeLines(result, codeLines);
-                    }
                     result.Add(element);
                 }
             }
             else
             {
                 if (codeLines.Count > 0)
-                {
                     FlushCodeLines(result, codeLines);
-                }
                 result.Add(element);
             }
         }
@@ -128,6 +128,26 @@ public static class PageContentParser
         // Semicolon-terminated statements
         if (trimmed.EndsWith(";")) return true;
 
+        return false;
+    }
+
+    /// <summary>
+    /// Looks ahead from the current position to see if more code lines follow within
+    /// the next few elements. Used to bridge short gaps (e.g., a table name between
+    /// code blocks) without breaking the code block.
+    /// </summary>
+    private static bool IsShortGapBeforeMoreCode(IReadOnlyList<ContentElement> elements, int currentIndex)
+    {
+        // Look ahead up to 2 elements for code
+        for (var i = currentIndex + 1; i < elements.Count && i <= currentIndex + 2; i++)
+        {
+            if (elements[i] is Paragraph np && np.Runs.Count > 0)
+            {
+                var nextText = string.Concat(np.Runs.Select(r => r.Text));
+                if (np.Runs.All(r => r.Code) || np.Runs.Any(r => r.Code) || IsCodeContinuation(nextText))
+                    return true;
+            }
+        }
         return false;
     }
 
