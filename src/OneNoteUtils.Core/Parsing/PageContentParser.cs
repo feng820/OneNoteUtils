@@ -55,12 +55,16 @@ public static class PageContentParser
                     // Inside a code block and this line has some code or looks like code
                     codeLines.Add(text);
                 }
+                else if (IsCodeContinuation(text))
+                {
+                    // Not yet in a code block, but this looks like code — start one
+                    codeLines.Add(text);
+                }
                 else
                 {
                     if (codeLines.Count > 0)
                     {
-                        result.Add(new CodeBlock(string.Join("\n", codeLines)));
-                        codeLines.Clear();
+                        FlushCodeLines(result, codeLines);
                     }
                     result.Add(element);
                 }
@@ -69,17 +73,35 @@ public static class PageContentParser
             {
                 if (codeLines.Count > 0)
                 {
-                    result.Add(new CodeBlock(string.Join("\n", codeLines)));
-                    codeLines.Clear();
+                    FlushCodeLines(result, codeLines);
                 }
                 result.Add(element);
             }
         }
 
         if (codeLines.Count > 0)
-            result.Add(new CodeBlock(string.Join("\n", codeLines)));
+            FlushCodeLines(result, codeLines);
 
         return result;
+    }
+
+    /// <summary>
+    /// Flushes accumulated code lines as a CodeBlock, or as individual paragraphs
+    /// if there's only one line (avoid false-positive single-line code blocks from pattern matching).
+    /// </summary>
+    private static void FlushCodeLines(List<ContentElement> result, List<string> codeLines)
+    {
+        if (codeLines.Count >= 2)
+        {
+            result.Add(new CodeBlock(string.Join("\n", codeLines)));
+        }
+        else if (codeLines.Count == 1)
+        {
+            // Single line — only treat as code if it was monospace (Run.Code),
+            // otherwise put it back as a paragraph
+            result.Add(new Paragraph([new Run(codeLines[0])]));
+        }
+        codeLines.Clear();
     }
 
     /// <summary>
@@ -99,6 +121,12 @@ public static class PageContentParser
 
         // Variable declarations
         if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^(let|var|const)\s+\w+\s*=")) return true;
+
+        // Function calls that look like table sources: EU('...'), cluster('...').database('...')
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^\w+\s*\(")) return true;
+
+        // Semicolon-terminated statements
+        if (trimmed.EndsWith(";")) return true;
 
         return false;
     }
