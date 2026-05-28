@@ -56,7 +56,7 @@ public static class HtmlFragmentParser
             doc.PreserveWhitespace = true;
             doc.LoadXml(xmlStr);
             var runs = new List<Run>();
-            WalkHtmlNode(doc.DocumentElement!, runs, false, false, false, false, null);
+            WalkHtmlNode(doc.DocumentElement!, runs, false, false, false, false, false, false, null);
             return runs;
         }
         catch (XmlException)
@@ -73,6 +73,8 @@ public static class HtmlFragmentParser
         bool italic,
         bool strikethrough,
         bool underline,
+        bool code,
+        bool highlight,
         string? href)
     {
         foreach (XmlNode child in node.ChildNodes)
@@ -82,7 +84,7 @@ public static class HtmlFragmentParser
             {
                 var text = child.Value ?? "";
                 if (text.Length > 0)
-                    runs.Add(new Run(text, Bold: bold, Italic: italic, Strikethrough: strikethrough, Underline: underline, HrefUrl: href));
+                    runs.Add(new Run(text, Bold: bold, Italic: italic, Strikethrough: strikethrough, Underline: underline, Code: code, Highlight: highlight, HrefUrl: href));
             }
             else if (child.NodeType == XmlNodeType.Element)
             {
@@ -94,6 +96,8 @@ public static class HtmlFragmentParser
                 var newItalic = italic;
                 var newStrike = strikethrough;
                 var newUnderline = underline;
+                var newCode = code;
+                var newHighlight = highlight;
                 var newHref = href;
 
                 switch (tag)
@@ -123,10 +127,13 @@ public static class HtmlFragmentParser
                         if (Regex.IsMatch(style, @"font-weight\s*:\s*bold")) newBold = true;
                         if (Regex.IsMatch(style, @"font-style\s*:\s*italic")) newItalic = true;
                         if (Regex.IsMatch(style, @"text-decoration\s*:\s*line-through")) newStrike = true;
+                        if (Regex.IsMatch(style, @"font-family\s*:\s*(Consolas|Courier|monospace)", RegexOptions.IgnoreCase)) newCode = true;
+                        if (Regex.IsMatch(style, @"background(-color)?\s*:\s*(yellow|#ffff00|#ff0|rgb\(255,\s*255,\s*0\))", RegexOptions.IgnoreCase)) newHighlight = true;
+                        if (Regex.IsMatch(style, @"background(-color)?\s*:", RegexOptions.IgnoreCase) && !Regex.IsMatch(style, @"background(-color)?\s*:\s*(transparent|inherit|initial|none)", RegexOptions.IgnoreCase)) newHighlight = true;
                         break;
                 }
 
-                WalkHtmlNode(el, runs, newBold, newItalic, newStrike, newUnderline, newHref);
+                WalkHtmlNode(el, runs, newBold, newItalic, newStrike, newUnderline, newCode, newHighlight, newHref);
             }
         }
     }

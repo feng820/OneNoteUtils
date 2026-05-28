@@ -272,6 +272,14 @@ public class ObsidianMarkdownWriter : INotebookWriter
                 }
                 sb.AppendLine();
                 break;
+
+            case Checkbox checkbox:
+                var checkMark = checkbox.Checked ? "x" : " ";
+                sb.Append($"- [{checkMark}] ");
+                foreach (var run in checkbox.Runs)
+                    sb.Append(FormatRun(run));
+                sb.AppendLine();
+                break;
         }
     }
 
@@ -415,13 +423,24 @@ public class ObsidianMarkdownWriter : INotebookWriter
         if (string.IsNullOrEmpty(text)) return "";
 
         if (run.Code) return $"`{text}`";
+        if (run.Highlight && text.Trim().Length > 0) text = $"=={text}==";
         if (run.Strikethrough && text.Trim().Length > 0) text = $"~~{text}~~";
         if (run.Bold && text.Trim().Length > 0) text = $"**{text}**";
         if (run.Italic && text.Trim().Length > 0) text = $"*{text}*";
         if (run.Underline && text.Trim().Length > 0) text = $"<u>{text}</u>";
 
         if (run.HrefUrl != null)
+        {
+            // Convert onenote:// links to Obsidian wikilinks
+            if (run.HrefUrl.StartsWith("onenote:", StringComparison.OrdinalIgnoreCase))
+            {
+                // Use the link text as the page name for the wikilink
+                var pageName = run.Text.Trim();
+                if (!string.IsNullOrEmpty(pageName))
+                    return $"[[{pageName}]]";
+            }
             text = $"[{text}]({run.HrefUrl})";
+        }
 
         return text;
     }

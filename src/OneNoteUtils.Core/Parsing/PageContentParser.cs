@@ -19,9 +19,44 @@ public static class PageContentParser
 
         var binaryData = ExtractBinaryData(doc);
         var quickStyles = BuildQuickStyleMap(doc);
-        var elements = ParseOutlines(doc, binaryData, quickStyles);
+        var tagDefs = BuildTagDefMap(doc);
+        var elements = ParseOutlines(doc, binaryData, quickStyles, tagDefs);
+
+        // Post-process: group consecutive all-code paragraphs into CodeBlock elements
+        elements = GroupCodeBlocks(elements);
 
         return pageStub with { Elements = elements };
+    }
+
+    /// <summary>
+    /// Groups consecutive Paragraph elements where all runs are Code into CodeBlock elements.
+    /// </summary>
+    private static IReadOnlyList<ContentElement> GroupCodeBlocks(IReadOnlyList<ContentElement> elements)
+    {
+        var result = new List<ContentElement>();
+        var codeLines = new List<string>();
+
+        foreach (var element in elements)
+        {
+            if (element is Paragraph p && p.Runs.Count > 0 && p.Runs.All(r => r.Code))
+            {
+                codeLines.Add(string.Concat(p.Runs.Select(r => r.Text)));
+            }
+            else
+            {
+                if (codeLines.Count > 0)
+                {
+                    result.Add(new CodeBlock(string.Join("\n", codeLines)));
+                    codeLines.Clear();
+                }
+                result.Add(element);
+            }
+        }
+
+        if (codeLines.Count > 0)
+            result.Add(new CodeBlock(string.Join("\n", codeLines)));
+
+        return result;
     }
 
     private static Dictionary<string, byte[]> ExtractBinaryData(XmlDocument doc)
@@ -66,10 +101,33 @@ public static class PageContentParser
         return map;
     }
 
-    private static IReadOnlyList<ContentElement> ParseOutlines(
-        XmlDocument doc,
-        Dictionary<string, byte[]> binaryData,
-        Dictionary<string, QuickStyleInfo> quickStyles)
+    private static Dictionary<string, TagDefInfo> BuildTagDefMap(XmlDocument doc)
+    {
+        var map = new Dictionary<string, TagDefInfo>();
+        var nodes = doc.SelectNodes("//*[local-name()='TagDef']");
+        if (nodes == null) return map;
+
+        foreach (XmlElement td in nodes)
+        {
+            var idx = td.GetAttribute("index");
+            var typeStr = td.GetAttribute("type");
+            var symbol = td.GetAttribute("symbol");
+            var name = td.GetAttribute("name") ?? "";
+
+            if (!string.IsNullOrEmpty(idx))
+            {
+                var type = int.TryParse(typeStr, out var t) ? t : -1;
+                // Types 0, 1, 2 with "To Do" name are checkboxes
+                var isCheckbox = name.Contains("To Do", StringComparison.OrdinalIgnoreCase)
+                    || symbol == "3" || type == 0 || type == 1 || type == 2;
+                map[idx] = new TagDefInfo(name, type, isCheckbox);
+            }
+        }
+
+        return map;
+    }
+
+    private static IReadOnlyList<ContentElement> ParseOutlines(XmlDocument doc, Dictionary<string, byte[]> binaryData, Dictionary<string, QuickStyleInfo> quickStyles, Dictionary<string, TagDefInfo> tagDefs)
     {
         var outlineNodes = doc.SelectNodes("//*[local-name()='Page']/*[local-name()='Outline']");
         if (outlineNodes == null || outlineNodes.Count == 0) return [];
@@ -99,7 +157,7 @@ public static class PageContentParser
 
             foreach (XmlElement oeChildren in oeChildrenNodes)
             {
-                var parsed = ParseOEChildren(oeChildren, 0, binaryData, quickStyles);
+                var parsed = ParseOEChildren(oeChildren, 0, binaryData, quickStyles, tagDefs);
                 elements.AddRange(parsed);
             }
         }
@@ -107,11 +165,7 @@ public static class PageContentParser
         return elements;
     }
 
-    private static List<ContentElement> ParseOEChildren(
-        XmlNode node,
-        int depth,
-        Dictionary<string, byte[]> binaryData,
-        Dictionary<string, QuickStyleInfo> quickStyles)
+    private static List<ContentElement> ParseOEChildren(XmlNode node, int depth, Dictionary<string, byte[]> binaryData, Dictionary<string, QuickStyleInfo> quickStyles, Dictionary<string, TagDefInfo> tagDefs)
     {
         var elements = new List<ContentElement>();
         var oeNodes = node.SelectNodes("./*[local-name()='OE']");
@@ -128,20 +182,20 @@ public static class PageContentParser
             if (isBullet)
             {
                 FlushNumberedList(numberedItems, elements);
-                var item = ParseListItem(oe, depth, binaryData, quickStyles, null);
+                var item = ParseListItem(oe, depth, binaryData, quickStyles, tagDefs, null);
                 bulletItems.Add(item);
             }
             else if (isNumber)
             {
                 FlushBulletList(bulletItems, elements);
-                var item = ParseListItem(oe, depth, binaryData, quickStyles, numberText);
+                var item = ParseListItem(oe, depth, binaryData, quickStyles, tagDefs, numberText);
                 numberedItems.Add(item);
             }
             else
             {
                 FlushBulletList(bulletItems, elements);
                 FlushNumberedList(numberedItems, elements);
-                var oeElements = ParseOE(oe, depth, binaryData, quickStyles);
+                var oeElements = ParseOE(oe, depth, binaryData, quickStyles, tagDefs);
                 elements.AddRange(oeElements);
             }
         }
@@ -170,12 +224,7 @@ public static class PageContentParser
         }
     }
 
-    private static ListItem ParseListItem(
-        XmlElement oe,
-        int depth,
-        Dictionary<string, byte[]> binaryData,
-        Dictionary<string, QuickStyleInfo> quickStyles,
-        string? numberText)
+    private static ListItem ParseListItem(XmlElement oe, int depth, Dictionary<string, byte[]> binaryData, Dictionary<string, QuickStyleInfo> quickStyles, Dictionary<string, TagDefInfo> tagDefs, string? numberText)
     {
         var inlineElements = ParseOEInlineContent(oe, binaryData, quickStyles);
 
@@ -187,18 +236,14 @@ public static class PageContentParser
             children = [];
             foreach (XmlElement oeChildren in oeChildrenNodes)
             {
-                children.AddRange(ParseOEChildren(oeChildren, depth + 1, binaryData, quickStyles));
+                children.AddRange(ParseOEChildren(oeChildren, depth + 1, binaryData, quickStyles, tagDefs));
             }
         }
 
         return new ListItem(inlineElements, numberText, children);
     }
 
-    private static List<ContentElement> ParseOE(
-        XmlElement oe,
-        int depth,
-        Dictionary<string, byte[]> binaryData,
-        Dictionary<string, QuickStyleInfo> quickStyles)
+    private static List<ContentElement> ParseOE(XmlElement oe, int depth, Dictionary<string, byte[]> binaryData, Dictionary<string, QuickStyleInfo> quickStyles, Dictionary<string, TagDefInfo> tagDefs)
     {
         var elements = new List<ContentElement>();
         var headingLevel = GetHeadingLevel(oe, quickStyles);
@@ -213,6 +258,29 @@ public static class PageContentParser
         // Always parse inline content — even transparent containers may hold
         // block-level elements like Table or Image directly
         var inlineElements = ParseOEInlineContent(oe, binaryData, quickStyles);
+
+        // Check for checkbox tags
+        var tagNode = oe.SelectSingleNode("./*[local-name()='Tag']") as XmlElement;
+        if (tagNode != null)
+        {
+            var tagIndex = tagNode.GetAttribute("index");
+            var completed = tagNode.GetAttribute("completed") == "true";
+            if (tagDefs.TryGetValue(tagIndex, out var tagDef) && tagDef.IsCheckbox)
+            {
+                var runs = inlineElements.OfType<Paragraph>()
+                    .SelectMany(p => p.Runs).ToList();
+                elements.Add(new Checkbox(completed, runs));
+
+                // Process children
+                var oeChildrenNodes2 = oe.SelectNodes("./*[local-name()='OEChildren']");
+                if (oeChildrenNodes2 != null)
+                {
+                    foreach (XmlElement oeChildren in oeChildrenNodes2)
+                        elements.AddRange(ParseOEChildren(oeChildren, depth + 1, binaryData, quickStyles, tagDefs));
+                }
+                return elements;
+            }
+        }
 
         if (!isTransparent)
         {
@@ -242,7 +310,7 @@ public static class PageContentParser
         {
             foreach (XmlElement oeChildren in oeChildrenNodes)
             {
-                elements.AddRange(ParseOEChildren(oeChildren, childDepth, binaryData, quickStyles));
+                elements.AddRange(ParseOEChildren(oeChildren, childDepth, binaryData, quickStyles, tagDefs));
             }
         }
 
@@ -463,4 +531,5 @@ public static class PageContentParser
     }
 
     private record QuickStyleInfo(string Name, double FontSize);
+    private record TagDefInfo(string Name, int Type, bool IsCheckbox);
 }

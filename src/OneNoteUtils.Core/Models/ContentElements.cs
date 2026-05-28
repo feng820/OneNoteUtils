@@ -26,6 +26,7 @@ public record Run(
     bool Strikethrough = false,
     bool Underline = false,
     bool Code = false,
+    bool Highlight = false,
     string? HrefUrl = null);
 
 /// <summary>
@@ -84,3 +85,8 @@ public record HorizontalRule() : ContentElement;
 /// A blockquote containing nested content elements.
 /// </summary>
 public record Blockquote(IReadOnlyList<ContentElement> Elements) : ContentElement;
+
+/// <summary>
+/// A checkbox/to-do item with text content.
+/// </summary>
+public record Checkbox(bool Checked, IReadOnlyList<Run> Runs) : ContentElement;
