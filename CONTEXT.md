@@ -5,12 +5,16 @@ A bi-directional sync tool between OneNote and Obsidian-compatible Markdown. Pul
 ## Language
 
 **Notebook**:
-A OneNote notebook — the top-level container identified by name or folder path.
+A OneNote notebook — the top-level container identified by name or folder path. Contains **Sections** and **Section Groups**.
 _Avoid_: binder, project
 
+**Section Group**:
+A named folder of **Sections** and/or nested **Section Groups** inside a **Notebook**. Maps to nested folders in the export output.
+_Avoid_: folder, category
+
 **Section**:
-A named grouping of pages inside a **Notebook** (maps to a OneNote section/tab).
-_Avoid_: folder, tab, category
+A named grouping of pages inside a **Notebook** or **Section Group** (maps to a OneNote section/tab).
+_Avoid_: tab, category
 
 **Page**:
 A single OneNote page within a **Section**. Has a title, content, and a level indicating its depth in the parent–child hierarchy.
@@ -58,7 +62,8 @@ _Avoid_: state file, cache, database
 
 ## Relationships
 
-- A **Notebook** contains one or more **Sections**
+- A **Notebook** contains **Sections** and **Section Groups**
+- A **Section Group** contains **Sections** and/or nested **Section Groups**
 - A **Section** contains zero or more **Pages**
 - A **Page** contains an ordered list of **Content Elements**
 - A **Content Element** may recursively contain other **Content Elements** (e.g. a table cell or list item containing images and formatted text)

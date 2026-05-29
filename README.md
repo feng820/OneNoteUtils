@@ -7,19 +7,23 @@ Bi-directional sync between OneNote and Obsidian-compatible Markdown. Pull noteb
 ### Pull (OneNote → Obsidian)
 
 - **Incremental sync** — only fetches and exports pages that changed since the last run
+- **Section groups** — full nested section group hierarchy exported as nested folders
 - **Full content export** — headings, paragraphs, bold/italic/strikethrough/underline/links
 - **Inline code & code blocks** — monospace font detection auto-wraps in backticks/fences
 - **Kusto/KQL detection** — query patterns grouped into fenced code blocks
 - **Checkboxes** — OneNote To-Do tags → `- [x]` / `- [ ]` markdown checkboxes
 - **Highlights** — background-color styles → `==highlight==` (Obsidian syntax)
 - **Internal links** — `onenote://` URLs → `[[wikilinks]]`
+- **Ink/pen drawings** — pages with ink auto-export a companion PDF embedded as `![[page.pdf]]`
 - **Images & attachments** — extracted into `_attachments/` subfolder with Obsidian `![[embed]]` syntax
 - **Tables** — rendered as markdown tables; single-column "container" tables rendered as content blocks
 - **Nested lists** — bullet and numbered lists with correct indentation
 - **Page hierarchy** — parent/child pages become nested folders with subpage links
+- **Duplicate page names** — auto-detected and disambiguated with a short ID suffix
 - **YAML frontmatter** — page title, OneNote page ID, section name
 - **Rename & delete detection** — renames clean up old files, deleted pages are removed
 - **Section filtering** — export specific sections via CLI flag or config
+- **Dry run** — `--dry-run` previews what would sync without writing files
 
 ### Push (Obsidian → OneNote)
 
@@ -56,6 +60,9 @@ dotnet run --project src/OneNoteUtils.Cli -- -n "My Notebook" -o "C:\Export" -s 
 
 # Force full re-export (cleans output folder first)
 dotnet run --project src/OneNoteUtils.Cli -- -n "My Notebook" -o "C:\Export" --full
+
+# Preview what would sync without writing
+dotnet run --project src/OneNoteUtils.Cli -- -n "My Notebook" -o "C:\Export" --dry-run
 
 # Push a markdown file to OneNote
 dotnet run --project src/OneNoteUtils.Cli -- --push "Note.md" -n "Team Notebook" -s "Shared Notes"
@@ -97,6 +104,7 @@ Required (push):
 Options:
   -s, --section <name>     Filter sections for sync (repeatable)
       --full               Force full export (skip incremental sync)
+      --dry-run            Preview sync plan without writing files
   -c, --config <path>      Path to a JSON config file (default: appsettings.json)
   -v, --verbose            Enable debug logging
   -h, --help               Show this help message
