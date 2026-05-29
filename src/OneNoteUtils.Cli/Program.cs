@@ -597,6 +597,7 @@ static void PrintUsage()
         Options:
           -s, --section <name>     Filter sections for sync (repeatable)
               --full               Force full export (skip incremental sync)
+              --dry-run            Preview sync plan without writing files
           -c, --config <path>      Path to a JSON config file (default: appsettings.json)
           -v, --verbose            Enable debug logging
           -h, --help               Show this help message
@@ -605,6 +606,7 @@ static void PrintUsage()
           OneNoteUtils.Cli -n "My Notebook" -o C:\Export
           OneNoteUtils.Cli -n "My Notebook" -o C:\Export -s "Daily Notes"
           OneNoteUtils.Cli -n "My Notebook" -o C:\Export --full
+          OneNoteUtils.Cli -n "My Notebook" -o C:\Export --dry-run
           OneNoteUtils.Cli --push "C:\Vault\Note.md" -n "Team Notebook" -s "Shared"
           OneNoteUtils.Cli --push "C:\Vault\Notes\" -n "Team Notebook" -s "Shared"
         """);
