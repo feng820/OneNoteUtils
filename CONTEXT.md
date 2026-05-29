@@ -1,6 +1,6 @@
 # OneNoteUtils
 
-A tool that exports OneNote notebooks to Obsidian-compatible Markdown, preserving hierarchy, formatting, images, tables, and attachments.
+A bi-directional sync tool between OneNote and Obsidian-compatible Markdown. Pulls notebooks to Obsidian with incremental sync, or pushes markdown files back to OneNote.
 
 ## Language
 
@@ -21,15 +21,15 @@ An integer (1 = root) that encodes the parent–child nesting of **Pages** withi
 _Avoid_: indent, depth
 
 **Content Element**:
-A discrete unit of content inside a **Page** — a heading, paragraph, list, table, image, or attachment. Content elements are ordered and can nest recursively (e.g. an image inside a list item).
+A discrete unit of content inside a **Page** — a heading, paragraph, list, table, image, attachment, code block, checkbox, blockquote, or horizontal rule. Content elements are ordered and can nest recursively (e.g. an image inside a list item).
 _Avoid_: block, node, component
 
 **Run**:
-A span of inline text within a paragraph with uniform formatting (bold, italic, strikethrough, hyperlink). A paragraph contains one or more **Runs**.
+A span of inline text within a paragraph with uniform formatting (bold, italic, strikethrough, underline, code, highlight, hyperlink). A paragraph contains one or more **Runs**.
 _Avoid_: span, fragment, chunk
 
 **Source**:
-The component that reads raw data from OneNote (currently via COM Interop). Produces hierarchy and page XML.
+The component that reads and writes raw data to/from OneNote (currently via COM Interop). Produces hierarchy and page XML for pulls; accepts page XML for pushes.
 _Avoid_: reader, provider, connector
 
 **Parser**:
