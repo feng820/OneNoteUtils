@@ -518,11 +518,13 @@ public static class PageContentParser
     private static Table? ParseTable(
         XmlNode tableNode,
         Dictionary<string, byte[]> binaryData,
-        Dictionary<string, QuickStyleInfo> quickStyles)
+        Dictionary<string, QuickStyleInfo> quickStyles,
+        Dictionary<string, TagDefInfo>? tagDefs = null)
     {
         var rowNodes = tableNode.SelectNodes("./*[local-name()='Row']");
         if (rowNodes == null || rowNodes.Count == 0) return null;
 
+        var tags = tagDefs ?? new Dictionary<string, TagDefInfo>();
         var rows = new List<TableRow>();
 
         foreach (XmlElement row in rowNodes)
@@ -534,21 +536,12 @@ public static class PageContentParser
             foreach (XmlElement cell in cellNodes)
             {
                 var cellElements = new List<ContentElement>();
-                // Select only the direct OEChildren of the cell, not deeply nested ones
                 var oeChildrenNodes = cell.SelectNodes("./*[local-name()='OEChildren']");
                 if (oeChildrenNodes != null)
                 {
                     foreach (XmlElement oeChildren in oeChildrenNodes)
                     {
-                        // Select only direct child OE nodes of this OEChildren
-                        var oeNodes = oeChildren.SelectNodes("./*[local-name()='OE']");
-                        if (oeNodes != null)
-                        {
-                            foreach (XmlElement oe in oeNodes)
-                            {
-                                cellElements.AddRange(ParseOEInlineContent(oe, binaryData, quickStyles));
-                            }
-                        }
+                        cellElements.AddRange(ParseOEChildren(oeChildren, 0, binaryData, quickStyles, tags));
                     }
                 }
                 cells.Add(new TableCell(cellElements));
