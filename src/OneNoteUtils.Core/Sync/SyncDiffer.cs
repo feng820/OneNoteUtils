@@ -48,31 +48,30 @@ public static class SyncDiffer
         // Build a set of all current page IDs for deletion detection
         var currentPageIds = new HashSet<string>();
 
-        foreach (var section in notebook.Sections)
+        foreach (var (path, section) in notebook.GetAllSections())
         {
+            var sectionFullName = string.IsNullOrEmpty(path) ? section.Name : $"{path}/{section.Name}";
             foreach (var page in section.Pages)
             {
                 currentPageIds.Add(page.PageId);
 
                 if (!manifest.Pages.TryGetValue(page.PageId, out var entry))
                 {
-                    // New page — not in manifest
                     plan.NewPages.Add(new SyncPageAction
                     {
                         PageId = page.PageId,
                         Title = page.Title,
-                        Section = section.Name,
+                        Section = sectionFullName,
                         LastModified = page.LastModified
                     });
                 }
                 else if (IsModified(page, entry))
                 {
-                    // Modified or renamed
                     plan.ModifiedPages.Add(new SyncPageAction
                     {
                         PageId = page.PageId,
                         Title = page.Title,
-                        Section = section.Name,
+                        Section = sectionFullName,
                         LastModified = page.LastModified,
                         PreviousEntry = entry
                     });
@@ -84,7 +83,7 @@ public static class SyncDiffer
                     {
                         PageId = page.PageId,
                         Title = page.Title,
-                        Section = section.Name,
+                        Section = sectionFullName,
                         LastModified = page.LastModified
                     });
                 }

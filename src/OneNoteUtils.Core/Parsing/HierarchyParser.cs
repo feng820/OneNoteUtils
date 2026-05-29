@@ -27,8 +27,12 @@ public static class HierarchyParser
         var name = notebookNode.GetAttribute("name") ?? notebookIdentifier;
         var notebookId = notebookNode.GetAttribute("ID") ?? "";
 
+        var notebookXmlNode = doc.SelectSingleNode($"//*[local-name()='Notebook' and @ID='{notebookId}']");
         var sections = ParseSections(doc, notebookId, nsMgr, options);
-        return new Notebook(name, sections);
+        var sectionGroups = notebookXmlNode != null
+            ? ParseSectionGroups(notebookXmlNode, options)
+            : (IReadOnlyList<SectionGroup>)[];
+        return new Notebook(name, sections, sectionGroups);
     }
 
     private static XmlElement? ResolveNotebook(XmlDocument doc, string identifier)
@@ -67,26 +71,55 @@ public static class HierarchyParser
     private static IReadOnlyList<Section> ParseSections(
         XmlDocument doc, string notebookId, XmlNamespaceManager nsMgr, ExportOptions options)
     {
-        var sectionNodes = doc.SelectNodes(
-            $"//*[local-name()='Notebook' and @ID='{notebookId}']//*[local-name()='Section']");
+        // Only get direct child sections of the notebook (not nested in groups)
+        var notebookNode = doc.SelectSingleNode($"//*[local-name()='Notebook' and @ID='{notebookId}']");
+        if (notebookNode == null) return [];
 
-        if (sectionNodes == null) return [];
+        return ParseDirectSections(notebookNode, options);
+    }
 
+    private static IReadOnlyList<Section> ParseDirectSections(XmlNode parent, ExportOptions options)
+    {
         var sections = new List<Section>();
         var hasSectionFilter = options.SectionFilter.Count > 0;
 
-        foreach (XmlElement sectionNode in sectionNodes)
+        foreach (XmlNode child in parent.ChildNodes)
         {
-            var sectionName = sectionNode.GetAttribute("name") ?? "Untitled";
+            if (child.LocalName != "Section") continue;
+            var sectionName = (child as XmlElement)?.GetAttribute("name") ?? "Untitled";
 
             if (hasSectionFilter && !options.SectionFilter.Contains(sectionName))
                 continue;
 
-            var pages = ParsePages(sectionNode, options);
+            var pages = ParsePages((XmlElement)child, options);
             sections.Add(new Section(sectionName, pages));
         }
 
         return sections;
+    }
+
+    private static IReadOnlyList<SectionGroup> ParseSectionGroups(XmlNode parent, ExportOptions options)
+    {
+        var groups = new List<SectionGroup>();
+
+        foreach (XmlNode child in parent.ChildNodes)
+        {
+            if (child.LocalName != "SectionGroup") continue;
+            var name = (child as XmlElement)?.GetAttribute("name") ?? "Untitled";
+
+            // Skip OneNote's internal recycle bin section groups
+            if (name.StartsWith("OneNote_RecycleBin", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var sections = ParseDirectSections(child, options);
+            var nestedGroups = ParseSectionGroups(child, options);
+
+            // Only include if it has content (after filtering)
+            if (sections.Count > 0 || nestedGroups.Count > 0)
+                groups.Add(new SectionGroup(name, sections, nestedGroups));
+        }
+
+        return groups;
     }
 
     private static IReadOnlyList<Page> ParsePages(XmlElement sectionNode, ExportOptions options)

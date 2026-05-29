@@ -117,6 +117,16 @@ public class ComOneNoteSource : IOneNoteSource, IDisposable
         });
     }
 
+    public void PublishPageToPdf(string pageId, string outputFilePath)
+    {
+        RunOnStaThread(() =>
+        {
+            // pfPublishFormat = 3 is PDF
+            _app!.Publish(pageId, outputFilePath, 3, "");
+            return 0;
+        });
+    }
+
     private void StaThreadLoop()
     {
         try

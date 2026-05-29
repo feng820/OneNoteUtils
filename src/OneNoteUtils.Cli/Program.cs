@@ -8,7 +8,7 @@ using OneNoteUtils.OneNote;
 using OneNoteUtils.Writers.Obsidian;
 
 // --- Parse CLI arguments ---
-var (notebookName, outputPath, configPath, verbose, sections, fullExport, pushPath) = ParseArgs(args);
+var (notebookName, outputPath, configPath, verbose, sections, fullExport, pushPath, dryRun) = ParseArgs(args);
 
 // Push mode has different required args
 if (!string.IsNullOrEmpty(pushPath))
@@ -69,10 +69,10 @@ if (!string.IsNullOrEmpty(pushPath))
 else if (fullExport)
     return RunFullExport(provider, notebookName!, outputPath!, options);
 else
-    return RunSync(provider, notebookName!, outputPath!, options);
+    return RunSync(provider, notebookName!, outputPath!, options, dryRun);
 
 // --- Sync logic (default) ---
-static int RunSync(ServiceProvider provider, string notebookName, string outputPath, ExportOptions options)
+static int RunSync(ServiceProvider provider, string notebookName, string outputPath, ExportOptions options, bool dryRun = false)
 {
     var logger = provider.GetRequiredService<ILogger<Program>>();
 
@@ -102,13 +102,23 @@ static int RunSync(ServiceProvider provider, string notebookName, string outputP
         }
 
         logger.LogInformation("Found notebook: {Name} ({SectionCount} sections)",
-            notebook.Name, notebook.Sections.Count);
+            notebook.Name, notebook.GetAllSections().Count());
 
         // 3. Diff manifest against current hierarchy
         var plan = SyncDiffer.Diff(manifest, notebook);
 
         logger.LogInformation("Sync plan: {New} new, {Modified} modified, {Deleted} deleted, {Unchanged} unchanged",
             plan.NewPages.Count, plan.ModifiedPages.Count, plan.DeletedPages.Count, plan.UnchangedPages.Count);
+
+        if (dryRun)
+        {
+            foreach (var p in plan.NewPages) logger.LogInformation("  [NEW] {Title} ({Section})", p.Title, p.Section);
+            foreach (var p in plan.ModifiedPages) logger.LogInformation("  [MOD] {Title} ({Section})", p.Title, p.Section);
+            foreach (var p in plan.DeletedPages) logger.LogInformation("  [DEL] {Title} ({Section})", p.Title, p.Section);
+            logger.LogInformation("Dry run complete. No files were changed.");
+            if (source is IDisposable d0) d0.Dispose();
+            return 0;
+        }
 
         if (plan.TotalWork == 0)
         {
@@ -140,8 +150,9 @@ static int RunSync(ServiceProvider provider, string notebookName, string outputP
 
         // Build a populated notebook for the writer's hierarchy context
         var populatedSections = new List<OneNoteUtils.Core.Models.Section>();
-        foreach (var section in notebook.Sections)
+        foreach (var (path, section) in notebook.GetAllSections())
         {
+            var sectionFullName = string.IsNullOrEmpty(path) ? section.Name : $"{path}/{section.Name}";
             var populatedPages = new List<OneNoteUtils.Core.Models.Page>();
             foreach (var page in section.Pages)
             {
@@ -169,7 +180,7 @@ static int RunSync(ServiceProvider provider, string notebookName, string outputP
                     populatedPages.Add(page);
                 }
             }
-            populatedSections.Add(new OneNoteUtils.Core.Models.Section(section.Name, populatedPages));
+            populatedSections.Add(new OneNoteUtils.Core.Models.Section(sectionFullName, populatedPages));
         }
 
         var populatedNotebook = new OneNoteUtils.Core.Models.Notebook(notebook.Name, populatedSections);
@@ -242,7 +253,7 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
         }
 
         logger.LogInformation("Found notebook: {Name} ({SectionCount} sections)",
-            notebook.Name, notebook.Sections.Count);
+            notebook.Name, notebook.GetAllSections().Count());
 
         // Clean the notebook output folder for a fresh export
         var notebookFolder = Path.Combine(outputPath, OneNoteUtils.Core.FileNameUtils.SanitizeFileBaseName(notebook.Name));
@@ -255,12 +266,14 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
         // 2. Parse page content for each page
         var totalPages = 0;
         var failedPages = 0;
-        var totalPageCount = notebook.Sections.Sum(s => s.Pages.Count);
+        var allSections = notebook.GetAllSections().ToList();
+        var totalPageCount = allSections.Sum(s => s.Section.Pages.Count);
         var populatedSections = new List<OneNoteUtils.Core.Models.Section>();
         var manifest = new SyncManifest { NotebookName = notebook.Name };
 
-        foreach (var section in notebook.Sections)
+        foreach (var (path, section) in allSections)
         {
+            var sectionFullName = string.IsNullOrEmpty(path) ? section.Name : $"{path}/{section.Name}";
             var populatedPages = new List<OneNoteUtils.Core.Models.Page>();
 
             foreach (var page in section.Pages)
@@ -282,7 +295,7 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
                 }
             }
 
-            populatedSections.Add(new OneNoteUtils.Core.Models.Section(section.Name, populatedPages));
+            populatedSections.Add(new OneNoteUtils.Core.Models.Section(sectionFullName, populatedPages));
         }
 
         var populatedNotebook = new OneNoteUtils.Core.Models.Notebook(notebook.Name, populatedSections);
@@ -290,6 +303,9 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
         // 3. Write to disk
         logger.LogInformation("Writing Obsidian Markdown...");
         writer.Write(populatedNotebook, outputPath);
+
+        // 3b. Export companion PDFs for pages with ink/drawings
+        ExportInkPdfs(populatedNotebook, source, outputPath, logger);
 
         // 4. Build and save manifest for future syncs
         foreach (var section in populatedNotebook.Sections)
@@ -319,6 +335,42 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
     {
         logger.LogCritical(ex, "Export failed: {Error}", ex.Message);
         return 1;
+    }
+}
+
+static void ExportInkPdfs(OneNoteUtils.Core.Models.Notebook notebook, IOneNoteSource source, string outputPath, ILogger logger)
+{
+    var notebookFolder = Path.Combine(outputPath, OneNoteUtils.Core.FileNameUtils.SanitizeFileBaseName(notebook.Name));
+
+    foreach (var (path, section) in notebook.GetAllSections())
+    {
+        var sectionFolder = string.IsNullOrEmpty(path)
+            ? Path.Combine(notebookFolder, OneNoteUtils.Core.FileNameUtils.SanitizeFileBaseName(section.Name))
+            : Path.Combine(notebookFolder, path.Replace('/', Path.DirectorySeparatorChar), OneNoteUtils.Core.FileNameUtils.SanitizeFileBaseName(section.Name));
+
+        foreach (var page in section.Pages.Where(p => p.HasInk))
+        {
+            try
+            {
+                var safeName = OneNoteUtils.Core.FileNameUtils.SanitizeFileBaseName(page.Title);
+                var attachDir = Path.Combine(sectionFolder, "_attachments");
+                Directory.CreateDirectory(attachDir);
+                var pdfPath = Path.Combine(attachDir, $"{safeName}.pdf");
+                source.PublishPageToPdf(page.PageId, pdfPath);
+                logger.LogInformation("Exported ink PDF: {Path}", pdfPath);
+
+                // Append PDF embed to the markdown file
+                var mdPath = Path.Combine(sectionFolder, $"{safeName}.md");
+                if (File.Exists(mdPath))
+                {
+                    File.AppendAllText(mdPath, $"\n\n## Ink / Drawings\n\n![[_attachments/{safeName}.pdf]]\n");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Failed to export ink PDF for '{Page}': {Error}", page.Title, ex.Message);
+            }
+        }
     }
 }
 
@@ -476,11 +528,12 @@ static void ClearPageOutlines(IOneNoteSource source, string pageId, ILogger logg
 }
 
 // --- Argument parsing ---
-static (string? notebook, string? output, string? config, bool verbose, List<string> sections, bool fullExport, string? pushPath) ParseArgs(string[] args)
+static (string? notebook, string? output, string? config, bool verbose, List<string> sections, bool fullExport, string? pushPath, bool dryRun) ParseArgs(string[] args)
 {
     string? notebook = null, output = null, config = null, pushPath = null;
     var verbose = false;
     var fullExport = false;
+    var dryRun = false;
     var sections = new List<string>();
 
     for (int i = 0; i < args.Length; i++)
@@ -505,6 +558,9 @@ static (string? notebook, string? output, string? config, bool verbose, List<str
             case "--full":
                 fullExport = true;
                 break;
+            case "--dry-run":
+                dryRun = true;
+                break;
             case "--verbose" or "-v":
                 verbose = true;
                 break;
@@ -515,7 +571,7 @@ static (string? notebook, string? output, string? config, bool verbose, List<str
         }
     }
 
-    return (notebook, output, config, verbose, sections, fullExport, pushPath);
+    return (notebook, output, config, verbose, sections, fullExport, pushPath, dryRun);
 }
 
 static void PrintUsage()

@@ -25,7 +25,11 @@ public static class PageContentParser
         // Post-process: group consecutive all-code paragraphs into CodeBlock elements
         elements = GroupCodeBlocks(elements);
 
-        return pageStub with { Elements = elements };
+        // Detect ink/drawing content
+        var hasInk = doc.SelectNodes("//*[local-name()='InkDrawing' or local-name()='InkWord' or local-name()='InkParagraph']");
+        var containsInk = hasInk != null && hasInk.Count > 0;
+
+        return pageStub with { Elements = elements, HasInk = containsInk };
     }
 
     /// <summary>

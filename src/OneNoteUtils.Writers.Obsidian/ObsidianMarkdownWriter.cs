@@ -26,9 +26,13 @@ public class ObsidianMarkdownWriter : INotebookWriter
             FileNameUtils.SanitizeFileBaseName(notebook.Name));
         Directory.CreateDirectory(notebookFolder);
 
-        foreach (var section in notebook.Sections)
+        // Write all sections including those inside section groups
+        foreach (var (path, section) in notebook.GetAllSections())
         {
-            WriteSection(section, notebookFolder);
+            var baseFolder = string.IsNullOrEmpty(path)
+                ? notebookFolder
+                : Path.Combine(notebookFolder, path.Replace('/', Path.DirectorySeparatorChar));
+            WriteSection(section, baseFolder);
         }
     }
 
@@ -518,6 +522,10 @@ public class ObsidianMarkdownWriter : INotebookWriter
 
             var safeBase = FileNameUtils.SanitizeFileBaseName(page.Title);
             if (_options.AlwaysSuffixWithShortId)
+                safeBase = $"{safeBase}-{FileNameUtils.ShortId(page.PageId, _options.ShortIdLength)}";
+
+            // Auto-detect duplicate names and append short ID to disambiguate
+            if (!_options.AlwaysSuffixWithShortId && infos.Values.Any(i => i.SafeBase == safeBase))
                 safeBase = $"{safeBase}-{FileNameUtils.ShortId(page.PageId, _options.ShortIdLength)}";
 
             infos[page.PageId] = new PageInfo(page, safeBase, parentId, []);

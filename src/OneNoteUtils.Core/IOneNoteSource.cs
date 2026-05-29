@@ -36,4 +36,9 @@ public interface IOneNoteSource
     /// Returns null if not found.
     /// </summary>
     string? FindSectionId(string notebookName, string sectionName);
+
+    /// <summary>
+    /// Publishes (exports) a page to a PDF file at the specified path.
+    /// </summary>
+    void PublishPageToPdf(string pageId, string outputFilePath);
 }
