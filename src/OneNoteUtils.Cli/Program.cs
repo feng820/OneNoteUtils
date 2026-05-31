@@ -210,7 +210,10 @@ static int RunSync(ServiceProvider provider, string notebookName, string outputP
             }
         }
 
-        // 7. Save manifest
+        // 7. Export companion PDFs for pages with ink/drawings
+        ExportInkPdfs(populatedNotebook, source, outputPath, logger);
+
+        // 8. Save manifest
         manifest.NotebookName = notebook.Name;
         manifest.LastSyncTime = DateTime.UtcNow;
         manifest.Save(outputPath);
