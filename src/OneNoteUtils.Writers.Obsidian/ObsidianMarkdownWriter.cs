@@ -29,17 +29,17 @@ public class ObsidianMarkdownWriter : INotebookWriter
         // Write all sections including those inside section groups
         foreach (var (path, section) in notebook.GetAllSections())
         {
-            var baseFolder = string.IsNullOrEmpty(path)
-                ? notebookFolder
-                : Path.Combine(notebookFolder, path.Replace('/', Path.DirectorySeparatorChar));
-            WriteSection(section, baseFolder);
+            var logicalSectionPath = string.IsNullOrEmpty(path)
+                ? section.Name
+                : $"{path}/{section.Name}";
+            WriteSection(section, notebookFolder, logicalSectionPath);
         }
     }
 
-    private void WriteSection(Section section, string notebookFolder)
+    private void WriteSection(Section section, string notebookFolder, string logicalSectionPath)
     {
         var sectionFolder = Path.Combine(notebookFolder,
-            FileNameUtils.SanitizeFileBaseName(section.Name));
+            FileNameUtils.SectionPathToFolder(logicalSectionPath));
         Directory.CreateDirectory(sectionFolder);
 
         _logger.LogInformation("Processing section: {SectionName}", section.Name);
@@ -153,7 +153,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
         var notebookFolder = Path.Combine(outputPath,
             FileNameUtils.SanitizeFileBaseName(notebook.Name));
         var sectionFolder = Path.Combine(notebookFolder,
-            FileNameUtils.SanitizeFileBaseName(sectionName));
+            FileNameUtils.SectionPathToFolder(sectionName));
         Directory.CreateDirectory(sectionFolder);
 
         // Find the section to build hierarchy context

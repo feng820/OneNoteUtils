@@ -248,8 +248,36 @@ public class ObsidianMarkdownWriterTests : IDisposable
         content.Should().Contain("Child Page");
     }
 
-    // --- Helpers ---
+    [Fact]
+    public void Write_NestsSectionGroupsAsFolders()
+    {
+        var page = new Page("p1", "Group Page", 1, null, [new Paragraph([new Run("content")])]);
+        var section = new Section("Inner Section", [page]);
+        var group = new SectionGroup("My Group", [section], []);
+        var notebook = new Notebook("Test Notebook", [], [group]);
 
+        _writer.Write(notebook, _tempDir);
+
+        var expected = Path.Combine(_tempDir, "Test Notebook", "My Group", "Inner Section", "Group Page.md");
+        File.Exists(expected).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Write_NestsSlashJoinedSectionNameAsFolders()
+    {
+        // Mirrors what the CLI produces: it flattens section groups into the section
+        // name using '/' before handing the notebook to the writer.
+        var page = new Page("p1", "Flat Page", 1, null, [new Paragraph([new Run("content")])]);
+        var notebook = new Notebook("Test Notebook",
+            [new Section("My Group/Inner Section", [page])]);
+
+        _writer.Write(notebook, _tempDir);
+
+        var expected = Path.Combine(_tempDir, "Test Notebook", "My Group", "Inner Section", "Flat Page.md");
+        File.Exists(expected).Should().BeTrue();
+    }
+
+    // --- Helpers ---
     private Notebook CreateSimpleNotebook()
     {
         var page = new Page("page-1", "Hello World", 1, null,

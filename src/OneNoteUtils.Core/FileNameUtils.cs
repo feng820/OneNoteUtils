@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Linq;
 
 namespace OneNoteUtils.Core;
 
@@ -32,6 +33,25 @@ public static class FileNameUtils
             clean = clean[..maxBaseLen].TrimEnd();
 
         return clean;
+    }
+
+    /// <summary>
+    /// Maps a logical section path (segments joined by '/') to a nested folder path,
+    /// sanitizing each segment individually. A section group becomes a folder and each
+    /// section it contains becomes a subfolder.
+    /// Note: '/' is treated as the segment delimiter, so a section whose name literally
+    /// contains '/' will be split across multiple folders.
+    /// </summary>
+    public static string SectionPathToFolder(string sectionPath)
+    {
+        if (string.IsNullOrWhiteSpace(sectionPath)) return "Untitled";
+
+        var segments = sectionPath
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Select(SanitizeFileBaseName)
+            .ToArray();
+
+        return segments.Length == 0 ? "Untitled" : Path.Combine(segments);
     }
 
     /// <summary>
