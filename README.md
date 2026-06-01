@@ -141,8 +141,8 @@ OneNoteUtils.slnx
 │   ├── OneNoteUtils.Writers.Obsidian/  — Obsidian Markdown writer
 │   └── OneNoteUtils.Cli/              — Entry point, config, DI wiring
 └── tests/
-    ├── OneNoteUtils.Core.Tests/        — Parser, sync, and utility tests (53 tests)
-    └── OneNoteUtils.Writers.Obsidian.Tests/ — Writer output tests (15 tests)
+    ├── OneNoteUtils.Core.Tests/        — Parser, sync, and utility tests (93 tests)
+    └── OneNoteUtils.Writers.Obsidian.Tests/ — Writer output tests (21 tests)
 ```
 
 **Pull pipeline:** OneNote COM → raw XML → domain model (Notebook → Section → Page → ContentElement tree) → Markdown files on disk.
