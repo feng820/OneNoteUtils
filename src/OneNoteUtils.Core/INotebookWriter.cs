@@ -15,9 +15,11 @@ public record WritePageResult(
 public interface INotebookWriter
 {
     /// <summary>
-    /// Writes the entire notebook content to the specified output directory.
+    /// Writes the entire notebook content to the specified output directory,
+    /// returning the per-page results keyed by OneNote page id so callers can
+    /// record exactly which files each page produced.
     /// </summary>
-    void Write(Notebook notebook, string outputPath);
+    IReadOnlyDictionary<string, WritePageResult> Write(Notebook notebook, string outputPath);
 
     /// <summary>
     /// Writes a single page to disk, returning the paths of all files created.

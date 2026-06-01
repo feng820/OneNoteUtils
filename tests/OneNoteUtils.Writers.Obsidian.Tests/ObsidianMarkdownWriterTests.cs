@@ -308,6 +308,39 @@ public class ObsidianMarkdownWriterTests : IDisposable
         File.Exists(resolved).Should().BeTrue();
     }
 
+    [Fact]
+    public void Write_ReturnsResultsKeyedByPageIdForAllPages()
+    {
+        // Full export relies on these results to record each page's exported files
+        // in the manifest, so later syncs can clean up on rename/delete.
+        var parent = new Page("p1", "Week 1", 1, null, [new Paragraph([new Run("parent")])]);
+        var child = new Page("p2", "Images Notes", 2, null, [new Paragraph([new Run("child")])]);
+        var notebook = new Notebook("Test Notebook", [new Section("My Section", [parent, child])]);
+
+        var results = _writer.Write(notebook, _tempDir);
+
+        results.Should().ContainKey("p1").And.ContainKey("p2");
+        // The nested subpage's result points at its real nested location on disk.
+        var expectedChild = Path.Combine(_tempDir, "Test Notebook", "My Section", "Week 1", "Images Notes.md");
+        results["p2"].ExportedPath.Should().Be(expectedChild);
+        File.Exists(results["p2"].ExportedPath).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Write_ResultIncludesAttachmentFilesForPage()
+    {
+        // Image attachments must be tracked so they can be cleaned up later.
+        var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
+        var page = new Page("p1", "Pic Page", 1, null,
+            [new Image("test.png", "png", () => imageBytes)]);
+        var notebook = new Notebook("Test Notebook", [new Section("My Section", [page])]);
+
+        var results = _writer.Write(notebook, _tempDir);
+
+        results.Should().ContainKey("p1");
+        results["p1"].ExportedFiles.Should().ContainSingle(f => f.EndsWith(".png"));
+    }
+
     // --- Helpers ---
     private Notebook CreateSimpleNotebook()
     {

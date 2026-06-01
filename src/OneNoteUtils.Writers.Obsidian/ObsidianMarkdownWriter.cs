@@ -20,8 +20,9 @@ public class ObsidianMarkdownWriter : INotebookWriter
         _logger = logger;
     }
 
-    public void Write(Notebook notebook, string outputPath)
+    public IReadOnlyDictionary<string, WritePageResult> Write(Notebook notebook, string outputPath)
     {
+        var results = new Dictionary<string, WritePageResult>();
         var notebookFolder = Path.Combine(outputPath,
             FileNameUtils.SanitizeFileBaseName(notebook.Name));
         Directory.CreateDirectory(notebookFolder);
@@ -32,11 +33,14 @@ public class ObsidianMarkdownWriter : INotebookWriter
             var logicalSectionPath = string.IsNullOrEmpty(path)
                 ? section.Name
                 : $"{path}/{section.Name}";
-            WriteSection(section, notebookFolder, logicalSectionPath);
+            WriteSection(section, notebookFolder, logicalSectionPath, results);
         }
+
+        return results;
     }
 
-    private void WriteSection(Section section, string notebookFolder, string logicalSectionPath)
+    private void WriteSection(Section section, string notebookFolder, string logicalSectionPath,
+        Dictionary<string, WritePageResult> results)
     {
         var sectionFolder = Path.Combine(notebookFolder,
             FileNameUtils.SectionPathToFolder(logicalSectionPath));
@@ -59,7 +63,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
 
         foreach (var rootId in rootIds)
         {
-            WritePageTree(rootId, pageInfos, sectionFolder, section.Name);
+            WritePageTree(rootId, pageInfos, sectionFolder, section.Name, results);
         }
     }
 
@@ -67,7 +71,8 @@ public class ObsidianMarkdownWriter : INotebookWriter
         string pageId,
         Dictionary<string, PageInfo> pageInfos,
         string sectionFolder,
-        string sectionName)
+        string sectionName,
+        Dictionary<string, WritePageResult> results)
     {
         if (!pageInfos.TryGetValue(pageId, out var info)) return;
 
@@ -76,8 +81,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
 
         try
         {
-            var result = WritePageFile(info, folder, sectionName, pageInfos);
-            // Result is used by WritePage; for full export via Write() we don't need it
+            results[info.Page.PageId] = WritePageFile(info, folder, sectionName, pageInfos);
         }
         catch (Exception ex)
         {
@@ -86,7 +90,7 @@ public class ObsidianMarkdownWriter : INotebookWriter
 
         foreach (var childId in info.ChildIds)
         {
-            WritePageTree(childId, pageInfos, sectionFolder, sectionName);
+            WritePageTree(childId, pageInfos, sectionFolder, sectionName, results);
         }
     }
 

@@ -211,7 +211,12 @@ static int RunSync(ServiceProvider provider, string notebookName, string outputP
         }
 
         // 7. Export companion PDFs for pages with ink/drawings
-        ExportInkPdfs(populatedNotebook, source, writer, outputPath, logger);
+        var inkPdfs = ExportInkPdfs(populatedNotebook, source, writer, outputPath, logger);
+        foreach (var (pageId, pdfPath) in inkPdfs)
+        {
+            if (manifest.Pages.TryGetValue(pageId, out var entry) && !entry.ExportedFiles.Contains(pdfPath))
+                entry.ExportedFiles.Add(pdfPath);
+        }
 
         // 8. Save manifest
         manifest.NotebookName = notebook.Name;
@@ -305,22 +310,35 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
 
         // 3. Write to disk
         logger.LogInformation("Writing Obsidian Markdown...");
-        writer.Write(populatedNotebook, outputPath);
+        var writeResults = writer.Write(populatedNotebook, outputPath);
 
         // 3b. Export companion PDFs for pages with ink/drawings
-        ExportInkPdfs(populatedNotebook, source, writer, outputPath, logger);
+        var inkPdfs = ExportInkPdfs(populatedNotebook, source, writer, outputPath, logger);
 
-        // 4. Build and save manifest for future syncs
+        // 4. Build and save manifest for future syncs.
+        // Record each page's exported files so later incremental syncs can clean
+        // up old files on rename/delete.
         foreach (var section in populatedNotebook.Sections)
         {
             foreach (var page in section.Pages)
             {
-                manifest.Pages[page.PageId] = new SyncPageEntry
+                var entry = new SyncPageEntry
                 {
                     Title = page.Title,
                     Section = section.Name,
                     LastModified = page.LastModified
                 };
+
+                if (writeResults.TryGetValue(page.PageId, out var result))
+                {
+                    entry.ExportedPath = result.ExportedPath;
+                    entry.ExportedFiles = result.ExportedFiles;
+                }
+
+                if (inkPdfs.TryGetValue(page.PageId, out var pdfPath) && !entry.ExportedFiles.Contains(pdfPath))
+                    entry.ExportedFiles.Add(pdfPath);
+
+                manifest.Pages[page.PageId] = entry;
             }
         }
         manifest.LastSyncTime = DateTime.UtcNow;
@@ -341,8 +359,10 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
     }
 }
 
-static void ExportInkPdfs(OneNoteUtils.Core.Models.Notebook notebook, IOneNoteSource source, INotebookWriter writer, string outputPath, ILogger logger)
+static IReadOnlyDictionary<string, string> ExportInkPdfs(OneNoteUtils.Core.Models.Notebook notebook, IOneNoteSource source, INotebookWriter writer, string outputPath, ILogger logger)
 {
+    var exported = new Dictionary<string, string>();
+
     foreach (var (path, section) in notebook.GetAllSections())
     {
         foreach (var page in section.Pages.Where(p => p.HasInk))
@@ -359,6 +379,7 @@ static void ExportInkPdfs(OneNoteUtils.Core.Models.Notebook notebook, IOneNoteSo
                 Directory.CreateDirectory(attachDir);
                 var pdfPath = Path.Combine(attachDir, $"{pdfBase}.pdf");
                 source.PublishPageToPdf(page.PageId, pdfPath);
+                exported[page.PageId] = pdfPath;
                 logger.LogInformation("Exported ink PDF: {Path}", pdfPath);
 
                 // Append PDF embed to the markdown file
@@ -378,6 +399,8 @@ static void ExportInkPdfs(OneNoteUtils.Core.Models.Notebook notebook, IOneNoteSo
             }
         }
     }
+
+    return exported;
 }
 
 static void DeletePageFiles(SyncPageEntry entry, ILogger logger)
