@@ -211,7 +211,7 @@ static int RunSync(ServiceProvider provider, string notebookName, string outputP
         }
 
         // 7. Export companion PDFs for pages with ink/drawings
-        ExportInkPdfs(populatedNotebook, source, outputPath, logger);
+        ExportInkPdfs(populatedNotebook, source, writer, outputPath, logger);
 
         // 8. Save manifest
         manifest.NotebookName = notebook.Name;
@@ -308,7 +308,7 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
         writer.Write(populatedNotebook, outputPath);
 
         // 3b. Export companion PDFs for pages with ink/drawings
-        ExportInkPdfs(populatedNotebook, source, outputPath, logger);
+        ExportInkPdfs(populatedNotebook, source, writer, outputPath, logger);
 
         // 4. Build and save manifest for future syncs
         foreach (var section in populatedNotebook.Sections)
@@ -341,32 +341,35 @@ static int RunFullExport(ServiceProvider provider, string notebookName, string o
     }
 }
 
-static void ExportInkPdfs(OneNoteUtils.Core.Models.Notebook notebook, IOneNoteSource source, string outputPath, ILogger logger)
+static void ExportInkPdfs(OneNoteUtils.Core.Models.Notebook notebook, IOneNoteSource source, INotebookWriter writer, string outputPath, ILogger logger)
 {
-    var notebookFolder = Path.Combine(outputPath, OneNoteUtils.Core.FileNameUtils.SanitizeFileBaseName(notebook.Name));
-
     foreach (var (path, section) in notebook.GetAllSections())
     {
-        var sectionFolder = string.IsNullOrEmpty(path)
-            ? Path.Combine(notebookFolder, OneNoteUtils.Core.FileNameUtils.SanitizeFileBaseName(section.Name))
-            : Path.Combine(notebookFolder, path.Replace('/', Path.DirectorySeparatorChar), OneNoteUtils.Core.FileNameUtils.SanitizeFileBaseName(section.Name));
-
         foreach (var page in section.Pages.Where(p => p.HasInk))
         {
             try
             {
-                var safeName = OneNoteUtils.Core.FileNameUtils.SanitizeFileBaseName(page.Title);
-                var attachDir = Path.Combine(sectionFolder, "_attachments");
+                // Resolve the real markdown path via the writer so companion files
+                // land alongside the page even when it is nested under a parent page.
+                var mdPath = writer.GetPageMarkdownPath(page, section.Name, notebook, outputPath);
+                var pageFolder = Path.GetDirectoryName(mdPath)!;
+                var pdfBase = Path.GetFileNameWithoutExtension(mdPath);
+
+                var attachDir = Path.Combine(pageFolder, "_attachments");
                 Directory.CreateDirectory(attachDir);
-                var pdfPath = Path.Combine(attachDir, $"{safeName}.pdf");
+                var pdfPath = Path.Combine(attachDir, $"{pdfBase}.pdf");
                 source.PublishPageToPdf(page.PageId, pdfPath);
                 logger.LogInformation("Exported ink PDF: {Path}", pdfPath);
 
                 // Append PDF embed to the markdown file
-                var mdPath = Path.Combine(sectionFolder, $"{safeName}.md");
                 if (File.Exists(mdPath))
                 {
-                    File.AppendAllText(mdPath, $"\n\n## Ink / Drawings\n\n![[_attachments/{safeName}.pdf]]\n");
+                    File.AppendAllText(mdPath, $"\n\n## Ink / Drawings\n\n![[_attachments/{pdfBase}.pdf]]\n");
+                }
+                else
+                {
+                    logger.LogWarning("Markdown file not found for ink page '{Page}' at '{Path}'; PDF exported but not embedded.",
+                        page.Title, mdPath);
                 }
             }
             catch (Exception ex)

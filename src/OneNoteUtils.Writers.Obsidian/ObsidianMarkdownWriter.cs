@@ -174,6 +174,28 @@ public class ObsidianMarkdownWriter : INotebookWriter
         return WritePageFile(info, folder, sectionName, pageInfos);
     }
 
+    /// <inheritdoc />
+    public string GetPageMarkdownPath(Page page, string sectionName, Notebook notebook, string outputPath)
+    {
+        var notebookFolder = Path.Combine(outputPath,
+            FileNameUtils.SanitizeFileBaseName(notebook.Name));
+        var sectionFolder = Path.Combine(notebookFolder,
+            FileNameUtils.SectionPathToFolder(sectionName));
+
+        var section = notebook.Sections.FirstOrDefault(s => s.Name == sectionName);
+        var pages = section?.Pages ?? [page];
+        var pageInfos = BuildPageHierarchy(pages);
+
+        if (!pageInfos.TryGetValue(page.PageId, out var info))
+        {
+            var safeBase = FileNameUtils.SanitizeFileBaseName(page.Title);
+            info = new PageInfo(page, safeBase, null, []);
+        }
+
+        var folder = GetPageFolder(page.PageId, pageInfos, sectionFolder);
+        return Path.Combine(folder, info.SafeBase + ".md");
+    }
+
     private void WriteContentElement(
         StringBuilder sb,
         ContentElement element,

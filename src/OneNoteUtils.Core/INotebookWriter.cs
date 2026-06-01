@@ -24,4 +24,11 @@ public interface INotebookWriter
     /// Used by incremental sync to export individual pages.
     /// </summary>
     WritePageResult WritePage(Page page, string sectionName, Notebook notebook, string outputPath);
+
+    /// <summary>
+    /// Resolves the on-disk markdown path for a page using the same file layout
+    /// rules as <see cref="WritePage"/> (hierarchy nesting and name disambiguation),
+    /// without writing anything. Used to locate companion files for an exported page.
+    /// </summary>
+    string GetPageMarkdownPath(Page page, string sectionName, Notebook notebook, string outputPath);
 }

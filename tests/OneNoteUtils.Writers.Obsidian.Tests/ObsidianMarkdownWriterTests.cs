@@ -277,6 +277,37 @@ public class ObsidianMarkdownWriterTests : IDisposable
         File.Exists(expected).Should().BeTrue();
     }
 
+    [Fact]
+    public void GetPageMarkdownPath_ResolvesSubpageIntoParentFolder()
+    {
+        // A level-2 subpage is written into its parent page's folder. The ink PDF
+        // companion must resolve to that same nested location, not the section root.
+        var parent = new Page("p1", "Week 1", 1, null, [new Paragraph([new Run("parent")])]);
+        var child = new Page("p2", "Images Notes", 2, null, [new Paragraph([new Run("child")])], HasInk: true);
+        var notebook = new Notebook("Test Notebook", [new Section("My Section", [parent, child])]);
+
+        var mdPath = _writer.GetPageMarkdownPath(child, "My Section", notebook, _tempDir);
+
+        var expected = Path.Combine(_tempDir, "Test Notebook", "My Section", "Week 1", "Images Notes.md");
+        mdPath.Should().Be(expected);
+    }
+
+    [Fact]
+    public void GetPageMarkdownPath_MatchesWrittenFile()
+    {
+        // The resolved path must match exactly where WritePage writes the file,
+        // so companion files land alongside the page.
+        var parent = new Page("p1", "Week 1", 1, null, [new Paragraph([new Run("parent")])]);
+        var child = new Page("p2", "Images Notes", 2, null, [new Paragraph([new Run("child")])]);
+        var notebook = new Notebook("Test Notebook", [new Section("My Section", [parent, child])]);
+
+        var resolved = _writer.GetPageMarkdownPath(child, "My Section", notebook, _tempDir);
+        var written = _writer.WritePage(child, "My Section", notebook, _tempDir);
+
+        resolved.Should().Be(written.ExportedPath);
+        File.Exists(resolved).Should().BeTrue();
+    }
+
     // --- Helpers ---
     private Notebook CreateSimpleNotebook()
     {
