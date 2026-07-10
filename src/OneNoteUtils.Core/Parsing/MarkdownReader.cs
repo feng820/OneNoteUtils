@@ -115,7 +115,7 @@ public static class MarkdownReader
                     tableLines.Add(lines[i]);
                     i++;
                 }
-                elements.Add(ParseTable(tableLines));
+                elements.Add(ParseTable(tableLines, basePath));
                 continue;
             }
 
@@ -173,13 +173,18 @@ public static class MarkdownReader
         if (string.IsNullOrEmpty(text)) return [];
 
         var runs = new List<Run>();
-        var pattern = @"(`([^`]+)`)" +                     // `inline code`
-                      @"|(\*\*\*(.+?)\*\*\*)" +           // ***bold italic***
-                      @"|(\*\*(.+?)\*\*)" +               // **bold**
-                      @"|(\*(.+?)\*)" +                    // *italic*
-                      @"|(~~(.+?)~~)" +                    // ~~strikethrough~~
-                      @"|(\[([^\]]+)\]\(([^)]+)\))" +     // [text](url)
-                      @"|(<u>(.+?)</u>)";                  // <u>underline</u>
+        var pattern =
+            @"(?<bh>\*\*==(?<bht>.+?)==\*\*)" +              // **==bold highlight==**
+            @"|(?<hb>==\*\*(?<hbt>.+?)\*\*==)" +             // ==**bold highlight**==
+            @"|(?<uh>==<u>(?<uht>.+?)</u>==)" +              // ==<u>underline highlight</u>==
+            @"|(?<hl>==(?<hlt>.+?)==)" +                      // ==highlight==
+            @"|(?<code>`(?<codet>[^`]+)`)" +                 // `inline code`
+            @"|(?<bi>\*\*\*(?<bit>.+?)\*\*\*)" +             // ***bold italic***
+            @"|(?<b>\*\*(?<bt>.+?)\*\*)" +                   // **bold**
+            @"|(?<i>\*(?<it>.+?)\*)" +                        // *italic*
+            @"|(?<s>~~(?<st>.+?)~~)" +                        // ~~strikethrough~~
+            @"|(?<link>\[(?<linkt>[^\]]+)\]\((?<linku>[^)]+)\))" + // [text](url)
+            @"|(?<u><u>(?<ut>.+?)</u>)";                      // <u>underline</u>
 
         var pos = 0;
         foreach (Match match in Regex.Matches(text, pattern))
@@ -188,20 +193,28 @@ public static class MarkdownReader
             if (match.Index > pos)
                 runs.Add(new Run(text[pos..match.Index]));
 
-            if (match.Groups[2].Success) // `inline code`
-                runs.Add(new Run(match.Groups[2].Value, Code: true));
-            else if (match.Groups[4].Success) // ***bold italic***
-                runs.Add(new Run(match.Groups[4].Value, Bold: true, Italic: true));
-            else if (match.Groups[6].Success) // **bold**
-                runs.Add(new Run(match.Groups[6].Value, Bold: true));
-            else if (match.Groups[8].Success) // *italic*
-                runs.Add(new Run(match.Groups[8].Value, Italic: true));
-            else if (match.Groups[10].Success) // ~~strikethrough~~
-                runs.Add(new Run(match.Groups[10].Value, Strikethrough: true));
-            else if (match.Groups[12].Success) // [text](url)
-                runs.Add(new Run(match.Groups[12].Value, HrefUrl: match.Groups[13].Value));
-            else if (match.Groups[15].Success) // <u>underline</u>
-                runs.Add(new Run(match.Groups[15].Value, Underline: true));
+            if (match.Groups["bh"].Success)
+                runs.Add(new Run(match.Groups["bht"].Value, Bold: true, Highlight: true));
+            else if (match.Groups["hb"].Success)
+                runs.Add(new Run(match.Groups["hbt"].Value, Bold: true, Highlight: true));
+            else if (match.Groups["uh"].Success)
+                runs.Add(new Run(match.Groups["uht"].Value, Underline: true, Highlight: true));
+            else if (match.Groups["hl"].Success)
+                runs.Add(new Run(match.Groups["hlt"].Value, Highlight: true));
+            else if (match.Groups["code"].Success)
+                runs.Add(new Run(match.Groups["codet"].Value, Code: true));
+            else if (match.Groups["bi"].Success)
+                runs.Add(new Run(match.Groups["bit"].Value, Bold: true, Italic: true));
+            else if (match.Groups["b"].Success)
+                runs.Add(new Run(match.Groups["bt"].Value, Bold: true));
+            else if (match.Groups["i"].Success)
+                runs.Add(new Run(match.Groups["it"].Value, Italic: true));
+            else if (match.Groups["s"].Success)
+                runs.Add(new Run(match.Groups["st"].Value, Strikethrough: true));
+            else if (match.Groups["link"].Success)
+                runs.Add(new Run(match.Groups["linkt"].Value, HrefUrl: match.Groups["linku"].Value));
+            else if (match.Groups["u"].Success)
+                runs.Add(new Run(match.Groups["ut"].Value, Underline: true));
 
             pos = match.Index + match.Length;
         }
@@ -321,23 +334,62 @@ public static class MarkdownReader
 
     // --- Table parsing ---
 
-    private static Table ParseTable(List<string> tableLines)
+    private static Table ParseTable(List<string> tableLines, string? basePath)
     {
         var rows = new List<TableRow>();
 
         foreach (var line in tableLines)
         {
             var cells = line.Trim().Trim('|').Split('|')
-                .Select(c => new TableCell(new List<ContentElement>
-                {
-                    new Paragraph(ParseInlineFormatting(c.Trim()))
-                }))
+                .Select(c => new TableCell(ParseCellElements(c.Trim(), basePath)))
                 .ToList();
 
             rows.Add(new TableRow(cells));
         }
 
         return new Table(rows);
+    }
+
+    private static readonly Regex CellImageRegex =
+        new(@"!\[\[([^\]]+)\]\]|!\[[^\]]*\]\(([^)]+)\)", RegexOptions.Compiled);
+
+    // Parses a single table cell, emitting Image elements for inline image tokens
+    // (![[wikilink]] or ![alt](path)) interleaved with text Paragraphs.
+    private static List<ContentElement> ParseCellElements(string cell, string? basePath)
+    {
+        MatchCollection matches = CellImageRegex.Matches(cell);
+        if (matches.Count == 0)
+        {
+            return new List<ContentElement> { new Paragraph(ParseInlineFormatting(cell)) };
+        }
+
+        List<ContentElement> elements = new();
+        int pos = 0;
+        foreach (Match m in matches)
+        {
+            if (m.Index > pos)
+            {
+                string text = cell.Substring(pos, m.Index - pos).Trim();
+                if (text.Length > 0)
+                    elements.Add(new Paragraph(ParseInlineFormatting(text)));
+            }
+
+            string imagePath = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value;
+            elements.Add(CreateImageFromPath(imagePath, basePath));
+            pos = m.Index + m.Length;
+        }
+
+        if (pos < cell.Length)
+        {
+            string text = cell.Substring(pos).Trim();
+            if (text.Length > 0)
+                elements.Add(new Paragraph(ParseInlineFormatting(text)));
+        }
+
+        if (elements.Count == 0)
+            elements.Add(new Paragraph(ParseInlineFormatting(string.Empty)));
+
+        return elements;
     }
 
     // --- Helpers ---

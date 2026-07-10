@@ -12,6 +12,12 @@ public static class OneNoteXmlWriter
 {
     private const string OneNoteNs = "http://schemas.microsoft.com/office/onenote/2013/onenote";
 
+    // Match the S360 OneNote template: body text is Calibri 11pt (the "p" quick
+    // style), table cells are Segoe UI 9pt. Without an explicit font, pushed text
+    // inherits the target page default and renders inconsistently vs authored pages.
+    private const string BodyFont = "font-family:Calibri;font-size:11.0pt";
+    private const string CellFont = "font-family:'Segoe UI';font-size:9.0pt";
+
     /// <summary>
     /// Creates a full page XML document for UpdatePageContent.
     /// If pageId is provided, updates an existing page; otherwise creates content for a new page.
@@ -104,8 +110,8 @@ public static class OneNoteXmlWriter
 
     private static void WriteHeading(StringBuilder sb, Heading heading)
     {
-        // OneNote uses QuickStyleDef for headings; for UpdatePageContent
-        // we use inline font-size styling to approximate heading levels
+        // Match the S360 template: section titles are Calibri bold at a larger
+        // point size (e.g. "All KPIs" / "Get S360 items missing ETA" are 14pt).
         var fontSize = heading.Level switch
         {
             1 => 20,
@@ -116,16 +122,16 @@ public static class OneNoteXmlWriter
         };
 
         sb.Append("<one:OE>");
-        sb.Append($"<one:T><![CDATA[<span style=\"font-size:{fontSize}pt;font-weight:bold\">");
+        sb.Append($"<one:T style=\"font-family:Calibri;font-size:{fontSize}.0pt\"><![CDATA[<span style=\"font-weight:bold\">");
         sb.Append(HtmlEncode(heading.Text));
         sb.Append("</span>]]></one:T>");
         sb.Append("</one:OE>");
     }
 
-    private static void WriteParagraph(StringBuilder sb, Paragraph paragraph)
+    private static void WriteParagraph(StringBuilder sb, Paragraph paragraph, string tStyle = BodyFont)
     {
         sb.Append("<one:OE>");
-        sb.Append("<one:T><![CDATA[");
+        sb.Append($"<one:T style=\"{tStyle}\"><![CDATA[");
         foreach (var run in paragraph.Runs)
         {
             WriteRun(sb, run);
@@ -164,7 +170,7 @@ public static class OneNoteXmlWriter
         foreach (var line in codeLines)
         {
             sb.Append("<one:OE>");
-            sb.Append("<one:T><![CDATA[<span style=\"font-family:Consolas,monospace;font-size:10pt\">");
+            sb.Append("<one:T><![CDATA[<span style=\"font-family:Consolas;font-size:10.0pt;color:#DA3900\">");
             sb.Append(HtmlEncode(string.IsNullOrEmpty(line) ? " " : line));
             sb.Append("</span>]]></one:T>");
             sb.Append("</one:OE>");
@@ -200,11 +206,11 @@ public static class OneNoteXmlWriter
     private static void WriteRun(StringBuilder sb, Run run)
     {
         var text = HtmlEncode(run.Text);
-        var hasStyle = run.Bold || run.Italic || run.Strikethrough || run.Underline;
+        var hasStyle = run.Bold || run.Italic || run.Strikethrough || run.Underline || run.Highlight;
 
         if (run.Code)
         {
-            sb.Append($"<span style=\"font-family:Consolas,monospace;background-color:#f0f0f0\">{text}</span>");
+            sb.Append($"<span style=\"font-family:Consolas;font-size:10.0pt;color:#DA3900\">{text}</span>");
             return;
         }
 
@@ -232,6 +238,7 @@ public static class OneNoteXmlWriter
         if (run.Italic) styles.Add("font-style:italic");
         if (run.Strikethrough) styles.Add("text-decoration:line-through");
         if (run.Underline) styles.Add("text-decoration:underline");
+        if (run.Highlight) styles.Add("background:yellow;mso-highlight:yellow");
 
         return $"<span style=\"{string.Join(";", styles)}\">{text}</span>";
     }
@@ -249,7 +256,7 @@ public static class OneNoteXmlWriter
         sb.Append("</one:List>");
 
         // Item text
-        sb.Append("<one:T><![CDATA[");
+        sb.Append($"<one:T style=\"{BodyFont}\"><![CDATA[");
         foreach (var element in item.Elements)
         {
             if (element is Paragraph p)
@@ -279,6 +286,7 @@ public static class OneNoteXmlWriter
         if (table.Rows.Count == 0) return;
 
         var colCount = table.Rows.Max(r => r.Cells.Count);
+        var widths = ComputeColumnWidths(table, colCount);
 
         sb.Append("<one:OE>");
         sb.Append("<one:Table bordersVisible=\"true\">");
@@ -286,7 +294,7 @@ public static class OneNoteXmlWriter
         // Columns
         sb.Append("<one:Columns>");
         for (int c = 0; c < colCount; c++)
-            sb.Append($"<one:Column index=\"{c}\" width=\"120\"/>");
+            sb.Append($"<one:Column index=\"{c}\" width=\"{widths[c]}\" isLocked=\"true\"/>");
         sb.Append("</one:Columns>");
 
         // Rows
@@ -297,17 +305,18 @@ public static class OneNoteXmlWriter
             {
                 sb.Append("<one:Cell>");
                 sb.Append("<one:OEChildren>");
+                int lenBefore = sb.Length;
                 if (c < row.Cells.Count)
                 {
                     foreach (var element in row.Cells[c].Elements)
                     {
                         if (element is Paragraph p)
-                            WriteParagraph(sb, p);
-                        else
-                            sb.Append("<one:OE><one:T><![CDATA[]]></one:T></one:OE>");
+                            WriteParagraph(sb, p, CellFont);
+                        else if (element is Image img)
+                            WriteImage(sb, img);
                     }
                 }
-                else
+                if (sb.Length == lenBefore)
                 {
                     sb.Append("<one:OE><one:T><![CDATA[]]></one:T></one:OE>");
                 }
@@ -319,6 +328,50 @@ public static class OneNoteXmlWriter
 
         sb.Append("</one:Table>");
         sb.Append("</one:OE>");
+    }
+
+    // Assigns per-column widths from the header row so free-text columns (e.g. Notes)
+    // get room and short structured columns stay narrow. Falls back to a flat default
+    // for tables whose headers aren't recognized.
+    private static int[] ComputeColumnWidths(Table table, int colCount)
+    {
+        const int Default = 120;
+        var widths = new int[colCount];
+        var header = table.Rows[0];
+
+        for (int c = 0; c < colCount; c++)
+        {
+            string h = c < header.Cells.Count
+                ? CellPlainText(header.Cells[c]).Trim().ToLowerInvariant()
+                : string.Empty;
+
+            widths[c] = h switch
+            {
+                "notes" => 340,
+                "kpiname" => 200,
+                "top10subitems" or "subitems" => 190,
+                "service" or "servicename" => 55,
+                "earliestduedate" => 95,
+                "totalsubitems" => 65,
+                _ => Default,
+            };
+        }
+
+        return widths;
+    }
+
+    private static string CellPlainText(TableCell cell)
+    {
+        var sb = new StringBuilder();
+        foreach (var element in cell.Elements)
+        {
+            if (element is Paragraph p)
+            {
+                foreach (var run in p.Runs)
+                    sb.Append(run.Text);
+            }
+        }
+        return sb.ToString();
     }
 
     private static string HtmlEncode(string text) => HttpUtility.HtmlEncode(text);

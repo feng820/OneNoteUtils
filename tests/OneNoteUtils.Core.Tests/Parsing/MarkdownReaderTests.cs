@@ -79,6 +79,25 @@ public class MarkdownReaderTests
     }
 
     [Fact]
+    public void Parse_HighlightInline()
+    {
+        var elements = MarkdownReader.Parse("Please ==update your notes== now");
+
+        var para = elements[0].Should().BeOfType<Paragraph>().Subject;
+        para.Runs.Should().Contain(r => r.Highlight && !r.Bold && r.Text == "update your notes");
+    }
+
+    [Fact]
+    public void Parse_BoldHighlightInline()
+    {
+        var elements = MarkdownReader.Parse("**==owners update==** and ==**mirror**==");
+
+        var para = elements[0].Should().BeOfType<Paragraph>().Subject;
+        para.Runs.Should().Contain(r => r.Highlight && r.Bold && r.Text == "owners update");
+        para.Runs.Should().Contain(r => r.Highlight && r.Bold && r.Text == "mirror");
+    }
+
+    [Fact]
     public void Parse_Link()
     {
         var elements = MarkdownReader.Parse("Visit [GitHub](https://github.com)");
@@ -234,6 +253,21 @@ public class MarkdownReaderTests
         elements.Should().HaveCount(1);
         elements[0].Should().BeOfType<Image>();
         ((Image)elements[0]).Format.Should().Be("jpg");
+    }
+
+    [Fact]
+    public void Parse_Table_CellWithInlineImage()
+    {
+        var md = "| KPI | Notes |\n| --- | --- |\n| Foo | before ![[shot.png]] after |";
+        var elements = MarkdownReader.Parse(md);
+
+        elements.Should().HaveCount(1);
+        var table = (Table)elements[0];
+        var noteCell = table.Rows[1].Cells[1];
+
+        noteCell.Elements.OfType<Image>().Should().ContainSingle()
+            .Which.FileName.Should().Be("shot.png");
+        noteCell.Elements.OfType<Paragraph>().Should().HaveCount(2);
     }
 
     [Fact]
