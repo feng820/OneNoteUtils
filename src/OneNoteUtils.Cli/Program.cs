@@ -8,10 +8,20 @@ using OneNoteUtils.OneNote;
 using OneNoteUtils.Writers.Obsidian;
 
 // --- Parse CLI arguments ---
-var (notebookName, outputPath, configPath, verbose, sections, fullExport, pushPath, dryRun) = ParseArgs(args);
+var (notebookName, outputPath, configPath, verbose, sections, fullExport, pushPath, dryRun, underPage, movePage) = ParseArgs(args);
 
+// Move-page mode has different required args
+if (!string.IsNullOrEmpty(movePage))
+{
+    if (string.IsNullOrEmpty(notebookName) || sections.Count == 0 || string.IsNullOrEmpty(underPage))
+    {
+        Console.Error.WriteLine("Move requires --notebook, --section and --under-page. Example:");
+        Console.Error.WriteLine("  OneNoteUtils.Cli --move-page \"{pageId}\" -n \"MDSPD\" -s \"S360\" --under-page \"CY26Q2\"");
+        return 1;
+    }
+}
 // Push mode has different required args
-if (!string.IsNullOrEmpty(pushPath))
+else if (!string.IsNullOrEmpty(pushPath))
 {
     if (string.IsNullOrEmpty(notebookName) || sections.Count == 0)
     {
@@ -64,8 +74,10 @@ services.AddSingleton<INotebookWriter, ObsidianMarkdownWriter>();
 var provider = services.BuildServiceProvider();
 
 // --- Run ---
-if (!string.IsNullOrEmpty(pushPath))
-    return RunPush(provider, pushPath, notebookName!, sections[0], outputPath ?? ".");
+if (!string.IsNullOrEmpty(movePage))
+    return RunMovePage(provider, notebookName!, sections[0], movePage, underPage!);
+else if (!string.IsNullOrEmpty(pushPath))
+    return RunPush(provider, pushPath, notebookName!, sections[0], outputPath ?? ".", underPage);
 else if (fullExport)
     return RunFullExport(provider, notebookName!, outputPath!, options);
 else
@@ -422,7 +434,37 @@ static void DeletePageFiles(SyncPageEntry entry, ILogger logger)
 }
 
 // --- Push logic ---
-static int RunPush(ServiceProvider provider, string pushPath, string notebookName, string sectionName, string manifestDir)
+static int RunMovePage(ServiceProvider provider, string notebookName, string sectionName, string pageId, string underPage)
+{
+    var logger = provider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        var source = provider.GetRequiredService<IOneNoteSource>();
+
+        var sectionId = source.FindSectionId(notebookName, sectionName);
+        if (sectionId == null)
+        {
+            logger.LogError("Section '{Section}' not found in notebook '{Notebook}'.", sectionName, notebookName);
+            return 1;
+        }
+
+        var moved = source.MovePageUnderHeader(sectionId, pageId, underPage);
+        if (moved)
+            logger.LogInformation("Nested page {PageId} under header '{Header}'.", pageId, underPage);
+        else
+            logger.LogWarning("Could not nest page {PageId} under header '{Header}'.", pageId, underPage);
+
+        if (source is IDisposable disposable) disposable.Dispose();
+        return moved ? 0 : 1;
+    }
+    catch (Exception ex)
+    {
+        logger.LogCritical(ex, "Move failed: {Error}", ex.Message);
+        return 1;
+    }
+}
+
+static int RunPush(ServiceProvider provider, string pushPath, string notebookName, string sectionName, string manifestDir, string? underPage = null)
 {
     var logger = provider.GetRequiredService<ILogger<Program>>();
 
@@ -466,33 +508,52 @@ static int RunPush(ServiceProvider provider, string pushPath, string notebookNam
 
         // Load manifest for push tracking
         var manifest = SyncManifest.Load(manifestDir);
-        var pushed = 0;
+        var index = 0;
+        var succeeded = 0;
+        var failed = 0;
 
         foreach (var mdFile in mdFiles)
         {
             var fileName = Path.GetFileNameWithoutExtension(mdFile);
             logger.LogInformation("[{Current}/{Total}] Pushing: {File}",
-                ++pushed, mdFiles.Count, fileName);
+                ++index, mdFiles.Count, fileName);
 
             try
             {
                 var markdown = File.ReadAllText(mdFile);
                 var elements = MarkdownReader.Parse(markdown, Path.GetDirectoryName(mdFile));
 
-                // Check if we've pushed this file before
+                // Reuse the page we pushed this file to last time — but only if it
+                // still exists. If the user deleted/moved it, the stored id is stale
+                // and updating it throws (OneNote 0x80042014); recover by creating a
+                // fresh page instead of silently failing.
                 string pageId;
-                if (manifest.Pushed.TryGetValue(mdFile, out var existing))
+                if (manifest.Pushed.TryGetValue(mdFile, out var existing)
+                    && PageExists(source, existing.PageId))
                 {
-                    // Update existing page — clear existing outlines first
                     pageId = existing.PageId;
                     logger.LogDebug("Updating existing page: {PageId}", pageId);
                     ClearPageOutlines(source, pageId, logger);
                 }
                 else
                 {
-                    // Create new page
+                    if (existing != null)
+                        logger.LogWarning(
+                            "Previously pushed page {PageId} no longer exists — creating a new page.",
+                            existing.PageId);
                     pageId = source.CreatePage(sectionId);
                     logger.LogDebug("Created new page: {PageId}", pageId);
+
+                    // Nest freshly created pages under a header page group if requested.
+                    if (!string.IsNullOrEmpty(underPage))
+                    {
+                        if (source.MovePageUnderHeader(sectionId, pageId, underPage))
+                            logger.LogInformation("Nested new page under header '{Header}'.", underPage);
+                        else
+                            logger.LogWarning(
+                                "Could not nest page under header '{Header}' — left at section root.",
+                                underPage);
+                    }
                 }
 
                 // Build and push page XML
@@ -508,24 +569,48 @@ static int RunPush(ServiceProvider provider, string pushPath, string notebookNam
                     SectionName = sectionName,
                     LastPushed = DateTime.UtcNow
                 };
+                succeeded++;
             }
             catch (Exception ex)
             {
+                failed++;
                 logger.LogWarning("Failed to push '{File}': {Error}", fileName, ex.Message);
             }
         }
 
         manifest.Save(manifestDir);
 
-        logger.LogInformation("Push complete. {Count} file(s) pushed.", pushed);
+        if (failed > 0)
+            logger.LogWarning("Push finished with errors: {Ok} succeeded, {Failed} failed.",
+                succeeded, failed);
+        else
+            logger.LogInformation("Push complete. {Count} file(s) pushed.", succeeded);
 
         if (source is IDisposable disposable) disposable.Dispose();
-        return 0;
+        return failed > 0 ? 1 : 0;
     }
     catch (Exception ex)
     {
         logger.LogCritical(ex, "Push failed: {Error}", ex.Message);
         return 1;
+    }
+}
+
+/// <summary>
+/// Returns true if the page id still resolves in OneNote. Used to detect a stale
+/// manifest entry (deleted/moved page) so the caller can create a fresh page
+/// instead of updating a page that no longer exists.
+/// </summary>
+static bool PageExists(IOneNoteSource source, string pageId)
+{
+    try
+    {
+        source.GetPageContentXml(pageId);
+        return true;
+    }
+    catch
+    {
+        return false;
     }
 }
 
@@ -557,9 +642,9 @@ static void ClearPageOutlines(IOneNoteSource source, string pageId, ILogger logg
 }
 
 // --- Argument parsing ---
-static (string? notebook, string? output, string? config, bool verbose, List<string> sections, bool fullExport, string? pushPath, bool dryRun) ParseArgs(string[] args)
+static (string? notebook, string? output, string? config, bool verbose, List<string> sections, bool fullExport, string? pushPath, bool dryRun, string? underPage, string? movePage) ParseArgs(string[] args)
 {
-    string? notebook = null, output = null, config = null, pushPath = null;
+    string? notebook = null, output = null, config = null, pushPath = null, underPage = null, movePage = null;
     var verbose = false;
     var fullExport = false;
     var dryRun = false;
@@ -584,6 +669,12 @@ static (string? notebook, string? output, string? config, bool verbose, List<str
             case "--push":
                 if (i + 1 < args.Length) pushPath = args[++i];
                 break;
+            case "--under-page":
+                if (i + 1 < args.Length) underPage = args[++i];
+                break;
+            case "--move-page":
+                if (i + 1 < args.Length) movePage = args[++i];
+                break;
             case "--full":
                 fullExport = true;
                 break;
@@ -600,7 +691,7 @@ static (string? notebook, string? output, string? config, bool verbose, List<str
         }
     }
 
-    return (notebook, output, config, verbose, sections, fullExport, pushPath, dryRun);
+    return (notebook, output, config, verbose, sections, fullExport, pushPath, dryRun, underPage, movePage);
 }
 
 static void PrintUsage()
@@ -625,6 +716,8 @@ static void PrintUsage()
 
         Options:
           -s, --section <name>     Filter sections for sync (repeatable)
+              --under-page <title> When pushing a NEW page, nest it as a subpage
+                                   directly beneath the header page with this title
               --full               Force full export (skip incremental sync)
               --dry-run            Preview sync plan without writing files
           -c, --config <path>      Path to a JSON config file (default: appsettings.json)
@@ -638,6 +731,7 @@ static void PrintUsage()
           OneNoteUtils.Cli -n "My Notebook" -o C:\Export --dry-run
           OneNoteUtils.Cli --push "C:\Vault\Note.md" -n "Team Notebook" -s "Shared"
           OneNoteUtils.Cli --push "C:\Vault\Notes\" -n "Team Notebook" -s "Shared"
+          OneNoteUtils.Cli --push "C:\Vault\Note.md" -n "MDSPD" -s "S360" --under-page "CY26Q2"
         """);
 }
 

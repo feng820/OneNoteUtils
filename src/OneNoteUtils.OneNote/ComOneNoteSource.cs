@@ -69,6 +69,78 @@ public class ComOneNoteSource : IOneNoteSource, IDisposable
         });
     }
 
+    public bool MovePageUnderHeader(string sectionId, string pageId, string headerTitle)
+    {
+        return RunOnStaThread(() =>
+        {
+            _app!.GetHierarchy(sectionId, HierarchyScope.Pages, out var xml);
+
+            var doc = new System.Xml.XmlDocument();
+            doc.LoadXml(xml);
+
+            var section = doc.DocumentElement;
+            if (section == null)
+            {
+                _logger.LogWarning("MovePageUnderHeader: section hierarchy XML had no root element.");
+                return false;
+            }
+
+            var ns = section.NamespaceURI;
+            var nsmgr = new System.Xml.XmlNamespaceManager(doc.NameTable);
+            nsmgr.AddNamespace("one", ns);
+
+            var pageNodes = section.SelectNodes("one:Page", nsmgr);
+            if (pageNodes == null)
+            {
+                _logger.LogWarning("MovePageUnderHeader: no pages found in section.");
+                return false;
+            }
+
+            System.Xml.XmlElement? newPage = null;
+            System.Xml.XmlElement? header = null;
+            foreach (System.Xml.XmlElement page in pageNodes)
+            {
+                if (page.GetAttribute("ID") == pageId)
+                    newPage = page;
+                if (header == null &&
+                    page.GetAttribute("name").Equals(headerTitle, StringComparison.OrdinalIgnoreCase))
+                    header = page;
+            }
+
+            if (newPage == null)
+            {
+                _logger.LogWarning("MovePageUnderHeader: created page {PageId} not found in section.", pageId);
+                return false;
+            }
+
+            if (header == null)
+            {
+                _logger.LogWarning(
+                    "MovePageUnderHeader: header page '{Header}' not found in section — leaving page at section root.",
+                    headerTitle);
+                return false;
+            }
+
+            // Nest one level deeper than the header so it renders as a subpage.
+            int headerLevel = int.TryParse(header.GetAttribute("pageLevel"), out var hl) ? hl : 1;
+            newPage.SetAttribute("pageLevel", (headerLevel + 1).ToString());
+
+            // Reposition immediately after the header → first subpage under it.
+            section.RemoveChild(newPage);
+            var afterHeader = header.NextSibling;
+            if (afterHeader != null)
+                section.InsertBefore(newPage, afterHeader);
+            else
+                section.AppendChild(newPage);
+
+            _app!.UpdateHierarchy(section.OuterXml, XMLSchema.Current);
+            _logger.LogDebug(
+                "MovePageUnderHeader: nested page {PageId} as subpage (level {Level}) under '{Header}'.",
+                pageId, headerLevel + 1, headerTitle);
+            return true;
+        });
+    }
+
     public void UpdatePageContent(string pageXml)
     {
         RunOnStaThread(() =>

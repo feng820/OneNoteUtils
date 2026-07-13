@@ -41,4 +41,12 @@ public interface IOneNoteSource
     /// Publishes (exports) a page to a PDF file at the specified path.
     /// </summary>
     void PublishPageToPdf(string pageId, string outputFilePath);
+
+    /// <summary>
+    /// Moves an existing page so it becomes a subpage nested directly beneath the
+    /// header page whose title matches <paramref name="headerTitle"/>, positioned as
+    /// the first subpage under that header. No-op (logged) if either page is not found.
+    /// </summary>
+    /// <returns>True if the page was repositioned; false if the header/page was not found.</returns>
+    bool MovePageUnderHeader(string sectionId, string pageId, string headerTitle);
 }
