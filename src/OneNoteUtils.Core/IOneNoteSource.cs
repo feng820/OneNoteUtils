@@ -49,4 +49,10 @@ public interface IOneNoteSource
     /// </summary>
     /// <returns>True if the page was repositioned; false if the header/page was not found.</returns>
     bool MovePageUnderHeader(string sectionId, string pageId, string headerTitle);
+
+    /// <summary>
+    /// Deletes a whole page from its section. By default the page is sent to the
+    /// OneNote recycle bin (recoverable) rather than permanently deleted.
+    /// </summary>
+    void DeletePage(string pageId, bool permanent = false);
 }

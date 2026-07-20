@@ -10,8 +10,21 @@ using OneNoteUtils.Writers.Obsidian;
 // --- Parse CLI arguments ---
 var (notebookName, outputPath, configPath, verbose, sections, fullExport, pushPath, dryRun, underPage, movePage) = ParseArgs(args);
 
+// Inline parse for --delete-page <pageId> [--permanent]
+string? deletePage = null;
+var deletePermanent = false;
+for (int ai = 0; ai < args.Length; ai++)
+{
+    if (args[ai] == "--delete-page" && ai + 1 < args.Length) deletePage = args[ai + 1];
+    if (args[ai] == "--permanent") deletePermanent = true;
+}
+
 // Move-page mode has different required args
-if (!string.IsNullOrEmpty(movePage))
+if (!string.IsNullOrEmpty(deletePage))
+{
+    // No notebook/section/output required for delete.
+}
+else if (!string.IsNullOrEmpty(movePage))
 {
     if (string.IsNullOrEmpty(notebookName) || sections.Count == 0 || string.IsNullOrEmpty(underPage))
     {
@@ -74,7 +87,9 @@ services.AddSingleton<INotebookWriter, ObsidianMarkdownWriter>();
 var provider = services.BuildServiceProvider();
 
 // --- Run ---
-if (!string.IsNullOrEmpty(movePage))
+if (!string.IsNullOrEmpty(deletePage))
+    return RunDeletePage(provider, deletePage, deletePermanent);
+else if (!string.IsNullOrEmpty(movePage))
     return RunMovePage(provider, notebookName!, sections[0], movePage, underPage!);
 else if (!string.IsNullOrEmpty(pushPath))
     return RunPush(provider, pushPath, notebookName!, sections[0], outputPath ?? ".", underPage);
@@ -434,6 +449,25 @@ static void DeletePageFiles(SyncPageEntry entry, ILogger logger)
 }
 
 // --- Push logic ---
+static int RunDeletePage(ServiceProvider provider, string pageId, bool permanent)
+{
+    var logger = provider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        var source = provider.GetRequiredService<IOneNoteSource>();
+        source.DeletePage(pageId, permanent);
+        logger.LogInformation("Deleted page {PageId} ({Mode}).", pageId,
+            permanent ? "permanent" : "sent to recycle bin");
+        if (source is IDisposable disposable) disposable.Dispose();
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        logger.LogCritical(ex, "Delete failed: {Error}", ex.Message);
+        return 1;
+    }
+}
+
 static int RunMovePage(ServiceProvider provider, string notebookName, string sectionName, string pageId, string underPage)
 {
     var logger = provider.GetRequiredService<ILogger<Program>>();
@@ -718,6 +752,9 @@ static void PrintUsage()
           -s, --section <name>     Filter sections for sync (repeatable)
               --under-page <title> When pushing a NEW page, nest it as a subpage
                                    directly beneath the header page with this title
+              --move-page <pageId> Re-nest an existing page under --under-page
+              --delete-page <pageId> Delete a page (to recycle bin unless --permanent)
+              --permanent          With --delete-page, delete permanently
               --full               Force full export (skip incremental sync)
               --dry-run            Preview sync plan without writing files
           -c, --config <path>      Path to a JSON config file (default: appsettings.json)
@@ -732,6 +769,8 @@ static void PrintUsage()
           OneNoteUtils.Cli --push "C:\Vault\Note.md" -n "Team Notebook" -s "Shared"
           OneNoteUtils.Cli --push "C:\Vault\Notes\" -n "Team Notebook" -s "Shared"
           OneNoteUtils.Cli --push "C:\Vault\Note.md" -n "MDSPD" -s "S360" --under-page "CY26Q2"
+          OneNoteUtils.Cli --move-page "{pageId}" -n "MDSPD" -s "S360" --under-page "CY26Q2"
+          OneNoteUtils.Cli --delete-page "{pageId}"
         """);
 }
 

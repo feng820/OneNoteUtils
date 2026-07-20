@@ -159,6 +159,15 @@ public class ComOneNoteSource : IOneNoteSource, IDisposable
         });
     }
 
+    public void DeletePage(string pageId, bool permanent = false)
+    {
+        RunOnStaThread(() =>
+        {
+            _app!.DeleteHierarchy(pageId, 0, permanent);
+            return 0;
+        });
+    }
+
     public string? FindSectionId(string notebookName, string sectionName)
     {
         return RunOnStaThread(() =>

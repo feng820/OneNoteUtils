@@ -35,6 +35,11 @@ Bi-directional sync between OneNote and Obsidian-compatible Markdown. Pull noteb
 - **Code blocks** — rendered in Consolas inside bordered boxes
 - **Blockquotes** — rendered as italic with vertical bar prefix
 - **Page title from h1** — uses the first heading as the OneNote page title
+- **Nest under a header** — `--under-page "<title>"` nests a newly created page as the
+  first subpage beneath an existing header/page-group (via `UpdateHierarchy`)
+- **Re-nest an existing page** — `--move-page "<pageId>" --under-page "<title>"`
+- **Delete a page** — `--delete-page "<pageId>"` (to the OneNote recycle bin; add
+  `--permanent` to delete permanently)
 
 ## Prerequisites
 
@@ -103,6 +108,11 @@ Required (push):
 
 Options:
   -s, --section <name>     Filter sections for sync (repeatable)
+      --under-page <title> When pushing a NEW page, nest it as a subpage beneath
+                           the header page with this title
+      --move-page <pageId> Re-nest an existing page under --under-page
+      --delete-page <pageId> Delete a page (to recycle bin unless --permanent)
+      --permanent          With --delete-page, delete permanently
       --full               Force full export (skip incremental sync)
       --dry-run            Preview sync plan without writing files
   -c, --config <path>      Path to a JSON config file (default: appsettings.json)
