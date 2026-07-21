@@ -353,9 +353,82 @@ public static class MarkdownReader
     private static readonly Regex CellImageRegex =
         new(@"!\[\[([^\]]+)\]\]|!\[[^\]]*\]\(([^)]+)\)", RegexOptions.Compiled);
 
-    // Parses a single table cell, emitting Image elements for inline image tokens
-    // (![[wikilink]] or ![alt](path)) interleaved with text Paragraphs.
+    private static readonly Regex CellBlockRegex =
+        new(@"<table\b.*?</table>|<ul\b.*?</ul>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+    private static readonly Regex HtmlRowRegex =
+        new(@"<tr\b[^>]*>(.*?)</tr>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+    private static readonly Regex HtmlCellRegex =
+        new(@"<(th|td)\b[^>]*>(.*?)</\1>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+    private static readonly Regex HtmlListItemRegex =
+        new(@"<li\b[^>]*>(.*?)</li>", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+    // Parses a single table cell. Supports embedded HTML <table>…</table> blocks
+    // (real nested OneNote tables), <ul><li>…</li></ul> blocks (real bullet lists),
+    // inline image tokens (![[wikilink]] or ![alt](path)), and formatted text —
+    // all interleaved in document order.
     private static List<ContentElement> ParseCellElements(string cell, string? basePath)
+    {
+        if (CellBlockRegex.IsMatch(cell))
+        {
+            var elements = new List<ContentElement>();
+            int pos = 0;
+            foreach (Match bm in CellBlockRegex.Matches(cell))
+            {
+                if (bm.Index > pos)
+                    elements.AddRange(ParseCellTextSegment(cell.Substring(pos, bm.Index - pos), basePath));
+                elements.Add(bm.Value.StartsWith("<table", StringComparison.OrdinalIgnoreCase)
+                    ? ParseHtmlTable(bm.Value)
+                    : ParseHtmlBulletList(bm.Value));
+                pos = bm.Index + bm.Length;
+            }
+            if (pos < cell.Length)
+                elements.AddRange(ParseCellTextSegment(cell.Substring(pos), basePath));
+            if (elements.Count == 0)
+                elements.Add(new Paragraph(ParseInlineFormatting(string.Empty)));
+            return elements;
+        }
+        return ParseCellTextSegment(cell, basePath);
+    }
+
+    // Parses an embedded HTML bullet list (<ul><li>…) into a BulletList model.
+    // Each <li> inner content is parsed as markdown inline formatting.
+    private static BulletList ParseHtmlBulletList(string html)
+    {
+        var items = new List<ListItem>();
+        foreach (Match lm in HtmlListItemRegex.Matches(html))
+        {
+            var runs = ParseInlineFormatting(lm.Groups[1].Value.Trim());
+            items.Add(new ListItem(new List<ContentElement> { new Paragraph(runs) }));
+        }
+        return new BulletList(items);
+    }
+
+    // Parses an embedded HTML table (<table><tr><th|td>…) into a nested Table model.
+    // <th> cells are bolded; the first row is treated as a header (shaded on write).
+    private static Table ParseHtmlTable(string html)
+    {
+        var rows = new List<TableRow>();
+        foreach (Match rm in HtmlRowRegex.Matches(html))
+        {
+            var cells = new List<TableCell>();
+            foreach (Match cm in HtmlCellRegex.Matches(rm.Groups[1].Value))
+            {
+                bool isHeader = cm.Groups[1].Value.Equals("th", StringComparison.OrdinalIgnoreCase);
+                var runs = HtmlFragmentParser.ParseHtmlToRuns(cm.Groups[2].Value.Trim());
+                if (runs.Count == 0)
+                    runs = [new Run(string.Empty)];
+                if (isHeader)
+                    runs = runs.Select(r => r with { Bold = true }).ToList();
+                cells.Add(new TableCell(new List<ContentElement> { new Paragraph(runs) }));
+            }
+            if (cells.Count > 0)
+                rows.Add(new TableRow(cells));
+        }
+        return new Table(rows);
+    }
+
+    // Parses a text-only cell segment: inline image tokens interleaved with text Paragraphs.
+    private static List<ContentElement> ParseCellTextSegment(string cell, string? basePath)
     {
         MatchCollection matches = CellImageRegex.Matches(cell);
         if (matches.Count == 0)

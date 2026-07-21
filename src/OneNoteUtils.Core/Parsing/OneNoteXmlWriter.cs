@@ -281,7 +281,7 @@ public static class OneNoteXmlWriter
         sb.Append("</one:OE>");
     }
 
-    private static void WriteTable(StringBuilder sb, Table table)
+    private static void WriteTable(StringBuilder sb, Table table, bool nested = false)
     {
         if (table.Rows.Count == 0) return;
 
@@ -289,7 +289,11 @@ public static class OneNoteXmlWriter
         var widths = ComputeColumnWidths(table, colCount);
 
         sb.Append("<one:OE>");
-        sb.Append("<one:Table bordersVisible=\"true\">");
+        // Nested (in-cell) tables mark the first row as a shaded header, matching the
+        // native S360 mini-tables (Title/Owner/Due Date/…).
+        sb.Append(nested
+            ? "<one:Table bordersVisible=\"true\" hasHeaderRow=\"true\">"
+            : "<one:Table bordersVisible=\"true\">");
 
         // Columns
         sb.Append("<one:Columns>");
@@ -298,12 +302,14 @@ public static class OneNoteXmlWriter
         sb.Append("</one:Columns>");
 
         // Rows
+        int rowIndex = 0;
         foreach (var row in table.Rows)
         {
+            bool headerRow = nested && rowIndex == 0;
             sb.Append("<one:Row>");
             for (int c = 0; c < colCount; c++)
             {
-                sb.Append("<one:Cell>");
+                sb.Append(headerRow ? "<one:Cell shadingColor=\"#E8E8E8\">" : "<one:Cell>");
                 sb.Append("<one:OEChildren>");
                 int lenBefore = sb.Length;
                 if (c < row.Cells.Count)
@@ -314,6 +320,15 @@ public static class OneNoteXmlWriter
                             WriteParagraph(sb, p, CellFont);
                         else if (element is Image img)
                             WriteImage(sb, img);
+                        else if (element is Table nt)
+                            WriteTable(sb, nt, nested: true);
+                        else if (element is BulletList bl)
+                        {
+                            sb.Append("<one:OE><one:OEChildren>");
+                            foreach (var item in bl.Items)
+                                WriteListItem(sb, item, isBullet: true);
+                            sb.Append("</one:OEChildren></one:OE>");
+                        }
                     }
                 }
                 if (sb.Length == lenBefore)
@@ -324,6 +339,7 @@ public static class OneNoteXmlWriter
                 sb.Append("</one:Cell>");
             }
             sb.Append("</one:Row>");
+            rowIndex++;
         }
 
         sb.Append("</one:Table>");
