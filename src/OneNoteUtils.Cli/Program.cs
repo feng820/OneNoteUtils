@@ -19,10 +19,28 @@ for (int ai = 0; ai < args.Length; ai++)
     if (args[ai] == "--permanent") deletePermanent = true;
 }
 
+// Inline parse for append mode: --append <fragment.md> --page-id <id> [--anchor <text>]
+string? appendPath = null, appendPageId = null, appendAnchor = null;
+for (int ai = 0; ai < args.Length; ai++)
+{
+    if (args[ai] == "--append" && ai + 1 < args.Length) appendPath = args[ai + 1];
+    if (args[ai] == "--page-id" && ai + 1 < args.Length) appendPageId = args[ai + 1];
+    if (args[ai] == "--anchor" && ai + 1 < args.Length) appendAnchor = args[ai + 1];
+}
+
 // Move-page mode has different required args
 if (!string.IsNullOrEmpty(deletePage))
 {
     // No notebook/section/output required for delete.
+}
+else if (!string.IsNullOrEmpty(appendPath))
+{
+    if (string.IsNullOrEmpty(appendPageId))
+    {
+        Console.Error.WriteLine("Append requires --page-id. Example:");
+        Console.Error.WriteLine("  OneNoteUtils.Cli --append \"Block.md\" --page-id \"{pageId}\" [--anchor \"daily log\"]");
+        return 1;
+    }
 }
 else if (!string.IsNullOrEmpty(movePage))
 {
@@ -89,6 +107,8 @@ var provider = services.BuildServiceProvider();
 // --- Run ---
 if (!string.IsNullOrEmpty(deletePage))
     return RunDeletePage(provider, deletePage, deletePermanent);
+else if (!string.IsNullOrEmpty(appendPath))
+    return RunAppend(provider, appendPath, appendPageId!, appendAnchor);
 else if (!string.IsNullOrEmpty(movePage))
     return RunMovePage(provider, notebookName!, sections[0], movePage, underPage!);
 else if (!string.IsNullOrEmpty(pushPath))
@@ -498,6 +518,56 @@ static int RunMovePage(ServiceProvider provider, string notebookName, string sec
     }
 }
 
+// --- Append-only push: add a block to an existing page WITHOUT rebuilding it ---
+static int RunAppend(ServiceProvider provider, string appendPath, string pageId, string? anchor)
+{
+    var logger = provider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        if (!File.Exists(appendPath) || !appendPath.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogError("Append path '{Path}' is not a .md file.", appendPath);
+            return 1;
+        }
+
+        var source = provider.GetRequiredService<IOneNoteSource>();
+
+        if (!PageExists(source, pageId))
+        {
+            logger.LogError("Target page '{PageId}' does not exist — cannot append.", pageId);
+            return 1;
+        }
+
+        var fullPath = Path.GetFullPath(appendPath);
+        var markdown = File.ReadAllText(fullPath);
+        var elements = MarkdownReader.Parse(markdown, Path.GetDirectoryName(fullPath));
+        if (elements.Count == 0)
+        {
+            logger.LogWarning("Append file '{Path}' has no content — nothing to append.", appendPath);
+            return 0;
+        }
+
+        // Fetch the current page XML and splice the new blocks in WITHOUT clearing it,
+        // so existing content (images, links, prior day-blocks) is preserved by objectID.
+        var existingXml = source.GetPageContentXml(pageId);
+        var mergedXml = OneNoteXmlWriter.AppendElementsToPageXml(existingXml, elements, anchor);
+        source.UpdatePageContent(mergedXml);
+
+        logger.LogInformation(
+            "Appended {Count} block element(s) to page {PageId}{Anchor}.",
+            elements.Count, pageId,
+            string.IsNullOrWhiteSpace(anchor) ? "" : $" (after outline containing '{anchor}')");
+
+        if (source is IDisposable disposable) disposable.Dispose();
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        logger.LogCritical(ex, "Append failed: {Error}", ex.Message);
+        return 1;
+    }
+}
+
 static int RunPush(ServiceProvider provider, string pushPath, string notebookName, string sectionName, string manifestDir, string? underPage = null)
 {
     var logger = provider.GetRequiredService<ILogger<Program>>();
@@ -753,6 +823,11 @@ static void PrintUsage()
               --under-page <title> When pushing a NEW page, nest it as a subpage
                                    directly beneath the header page with this title
               --move-page <pageId> Re-nest an existing page under --under-page
+              --append <file.md>   Append a block to an existing page WITHOUT
+                                   rebuilding it (preserves images/links); needs --page-id
+              --page-id <id>       Target page id for --append
+              --anchor <text>      With --append, insert after the outline whose text
+                                   contains this (default: last outline on the page)
               --delete-page <pageId> Delete a page (to recycle bin unless --permanent)
               --permanent          With --delete-page, delete permanently
               --full               Force full export (skip incremental sync)
@@ -770,6 +845,7 @@ static void PrintUsage()
           OneNoteUtils.Cli --push "C:\Vault\Notes\" -n "Team Notebook" -s "Shared"
           OneNoteUtils.Cli --push "C:\Vault\Note.md" -n "MDSPD" -s "S360" --under-page "CY26Q2"
           OneNoteUtils.Cli --move-page "{pageId}" -n "MDSPD" -s "S360" --under-page "CY26Q2"
+          OneNoteUtils.Cli --append "C:\Vault\day-block.md" --page-id "{pageId}" --anchor "daily log"
           OneNoteUtils.Cli --delete-page "{pageId}"
         """);
 }

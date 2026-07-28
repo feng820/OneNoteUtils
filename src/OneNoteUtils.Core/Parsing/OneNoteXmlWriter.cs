@@ -39,6 +39,89 @@ public static class OneNoteXmlWriter
         sb.Append("<one:Outline>");
         sb.Append("<one:OEChildren>");
 
+        WriteElements(sb, elements);
+
+        sb.Append("</one:OEChildren>");
+        sb.Append("</one:Outline>");
+        sb.Append("</one:Page>");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Serializes just the <c>&lt;one:OE&gt;</c> sequence for the given elements —
+    /// the same content BuildPageXml wraps in a Page/Outline, but without the
+    /// wrapper. Used by the append path to splice new blocks into an existing page
+    /// without rebuilding (and thus without dropping) its current content.
+    /// </summary>
+    public static string BuildOEsXml(IReadOnlyList<ContentElement> elements)
+    {
+        var sb = new StringBuilder();
+        WriteElements(sb, elements);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Appends new elements to an existing page's XML (as returned by
+    /// GetPageContentXml) WITHOUT clearing it. The new <c>&lt;one:OE&gt;</c> nodes are
+    /// inserted at the end of the OEChildren of the outline whose text contains
+    /// <paramref name="anchorContains"/> (case-insensitive); if that is null or not
+    /// found, the last outline on the page is used. Every existing object keeps its
+    /// objectID, so images and other content the caller did not re-send are preserved
+    /// by reference when the result is passed to UpdatePageContent.
+    /// </summary>
+    public static string AppendElementsToPageXml(
+        string existingPageXml, IReadOnlyList<ContentElement> elements, string? anchorContains = null)
+    {
+        var doc = new System.Xml.XmlDocument { PreserveWhitespace = true };
+        doc.LoadXml(existingPageXml);
+
+        var nsUri = doc.DocumentElement?.NamespaceURI ?? OneNoteNs;
+        var nsmgr = new System.Xml.XmlNamespaceManager(doc.NameTable);
+        nsmgr.AddNamespace("one", nsUri);
+
+        var outlines = doc.SelectNodes("//one:Outline", nsmgr);
+        if (outlines == null || outlines.Count == 0)
+            throw new InvalidOperationException("Target page has no outline to append to.");
+
+        System.Xml.XmlElement? target = null;
+        if (!string.IsNullOrWhiteSpace(anchorContains))
+        {
+            foreach (System.Xml.XmlElement ol in outlines)
+            {
+                if (ol.InnerText.IndexOf(anchorContains, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    target = ol;
+                    break;
+                }
+            }
+        }
+        target ??= (System.Xml.XmlElement)outlines[outlines.Count - 1]!;
+
+        // Find (or create) the outline's direct OEChildren container.
+        var oeChildren = target.SelectSingleNode("./one:OEChildren", nsmgr) as System.Xml.XmlElement;
+        if (oeChildren == null)
+        {
+            oeChildren = doc.CreateElement("one", "OEChildren", nsUri);
+            target.AppendChild(oeChildren);
+        }
+
+        // Parse the new OE sequence (declaring the one: prefix so it resolves) and
+        // import each node into the target document before appending.
+        var oesXml = $"<one:wrap xmlns:one=\"{nsUri}\">{BuildOEsXml(elements)}</one:wrap>";
+        var fragmentDoc = new System.Xml.XmlDocument { PreserveWhitespace = true };
+        fragmentDoc.LoadXml(oesXml);
+        foreach (System.Xml.XmlNode node in fragmentDoc.DocumentElement!.ChildNodes)
+        {
+            var imported = doc.ImportNode(node, deep: true);
+            oeChildren.AppendChild(imported);
+        }
+
+        return doc.OuterXml;
+    }
+
+    private static void WriteElements(StringBuilder sb, IReadOnlyList<ContentElement> elements)
+    {
         for (int i = 0; i < elements.Count; i++)
         {
             // Add a blank line before headings (except the first element)
@@ -51,12 +134,6 @@ public static class OneNoteXmlWriter
             if (elements[i] is Heading or Image or CodeBlock or Table or HorizontalRule)
                 WriteBlankLine(sb);
         }
-
-        sb.Append("</one:OEChildren>");
-        sb.Append("</one:Outline>");
-        sb.Append("</one:Page>");
-
-        return sb.ToString();
     }
 
     private static void WriteBlankLine(StringBuilder sb)

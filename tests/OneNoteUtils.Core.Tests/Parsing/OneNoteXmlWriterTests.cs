@@ -313,4 +313,73 @@ public class OneNoteXmlWriterTests
         xml.Should().Contain("&gt;");
         xml.Should().NotContain("< B");
     }
+
+    // --- Append (append-only weekday push) ---
+
+    private const string OneNs = "http://schemas.microsoft.com/office/onenote/2013/onenote";
+
+    // A realistic existing page: one outline holding a heading, an IMAGE (with an
+    // objectID, as OneNote returns it), and a daily-log heading. The append path must
+    // keep the image and add the new block WITHOUT rebuilding.
+    private static string ExistingPageWithImage() =>
+        $"<?xml version=\"1.0\"?><one:Page xmlns:one=\"{OneNs}\" ID=\"page-1\">" +
+        "<one:Title><one:OE><one:T><![CDATA[Week]]></one:T></one:OE></one:Title>" +
+        "<one:Outline objectID=\"ol-1\"><one:OEChildren>" +
+        "<one:OE objectID=\"oe-h\"><one:T><![CDATA[All KPIs]]></one:T></one:OE>" +
+        "<one:OE objectID=\"oe-img\"><one:Image format=\"png\" objectID=\"img-1\"><one:Data>QUJD</one:Data></one:Image></one:OE>" +
+        "<one:OE objectID=\"oe-log\"><one:T><![CDATA[New S360 items (daily log)]]></one:T></one:OE>" +
+        "</one:OEChildren></one:Outline></one:Page>";
+
+    [Fact]
+    public void Append_PreservesExistingImageAndObjectIds()
+    {
+        var merged = OneNoteXmlWriter.AppendElementsToPageXml(
+            ExistingPageWithImage(),
+            [new Heading(3, "7/28 — past 24h")],
+            anchorContains: "daily log");
+
+        // Existing image (and its objectID) must survive the append.
+        merged.Should().Contain("img-1");
+        merged.Should().Contain("one:Image");
+        merged.Should().Contain("QUJD"); // the image data is untouched
+        // Existing outline/objectIDs preserved (nothing cleared).
+        merged.Should().Contain("ol-1");
+        merged.Should().Contain("oe-img");
+        // New block was added.
+        merged.Should().Contain("7/28 — past 24h");
+    }
+
+    [Fact]
+    public void Append_InsertsBlockAfterExistingContentInAnchorOutline()
+    {
+        var merged = OneNoteXmlWriter.AppendElementsToPageXml(
+            ExistingPageWithImage(),
+            [new Heading(3, "NEWDAYBLOCK")],
+            anchorContains: "daily log");
+
+        // The new block must come AFTER the existing daily-log heading (appended at end).
+        var logIdx = merged.IndexOf("daily log", StringComparison.Ordinal);
+        var newIdx = merged.IndexOf("NEWDAYBLOCK", StringComparison.Ordinal);
+        logIdx.Should().BeGreaterThan(-1);
+        newIdx.Should().BeGreaterThan(logIdx);
+
+        // Result must still be a single well-formed page with one outline.
+        var doc = new System.Xml.XmlDocument();
+        doc.LoadXml(merged);
+        var nsmgr = new System.Xml.XmlNamespaceManager(doc.NameTable);
+        nsmgr.AddNamespace("one", OneNs);
+        doc.SelectNodes("//one:Outline", nsmgr)!.Count.Should().Be(1);
+    }
+
+    [Fact]
+    public void Append_FallsBackToLastOutline_WhenAnchorMissing()
+    {
+        var merged = OneNoteXmlWriter.AppendElementsToPageXml(
+            ExistingPageWithImage(),
+            [new Paragraph([new Run("APPENDED")])],
+            anchorContains: "no-such-anchor");
+
+        merged.Should().Contain("APPENDED");
+        merged.Should().Contain("img-1"); // still preserved
+    }
 }
