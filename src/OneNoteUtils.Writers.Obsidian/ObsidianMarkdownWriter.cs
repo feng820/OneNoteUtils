@@ -430,24 +430,76 @@ public class ObsidianMarkdownWriter : INotebookWriter
         ref int imageIndex)
     {
         var parts = new List<string>();
-
         foreach (var element in cell.Elements)
         {
-            if (element is Paragraph paragraph)
-            {
-                var text = string.Concat(paragraph.Runs.Select(FormatRun));
-                if (!string.IsNullOrWhiteSpace(text))
-                    parts.Add(text.Trim());
-            }
-            else if (element is Image image)
-            {
-                var imgFile = WriteImageFile(image, pageFileBaseName, pageOutFolder, ref imageIndex);
-                if (imgFile != null)
-                    parts.Add(_options.EmbedImages ? $"![[{imgFile}]]" : $"![{imgFile}]({imgFile})");
-            }
+            var part = FormatCellElement(
+                element, pageFileBaseName, pageOutFolder, ref imageIndex);
+            if (!string.IsNullOrWhiteSpace(part))
+                parts.Add(part);
         }
 
         return string.Join("<br>", parts).Replace("|", "\\|");
+    }
+
+    private string FormatCellElement(
+        ContentElement element,
+        string pageFileBaseName,
+        string pageOutFolder,
+        ref int imageIndex)
+    {
+        switch (element)
+        {
+            case Paragraph paragraph:
+                return string.Concat(paragraph.Runs.Select(FormatRun)).Trim();
+
+            case Image image:
+                var imgFile = WriteImageFile(
+                    image, pageFileBaseName, pageOutFolder, ref imageIndex);
+                if (imgFile == null) return "";
+                return _options.EmbedImages
+                    ? $"![[{imgFile}]]"
+                    : $"![{imgFile}]({imgFile})";
+
+            case BulletList bulletList:
+                var items = new List<string>();
+                foreach (var item in bulletList.Items)
+                {
+                    var itemParts = new List<string>();
+                    foreach (var child in item.Elements)
+                    {
+                        var part = FormatCellElement(
+                            child, pageFileBaseName, pageOutFolder, ref imageIndex);
+                        if (!string.IsNullOrWhiteSpace(part))
+                            itemParts.Add(part);
+                    }
+                    items.Add($"<li>{string.Join("<br>", itemParts)}</li>");
+                }
+                return $"<ul>{string.Join("", items)}</ul>";
+
+            case Table table:
+                var rows = new List<string>();
+                foreach (var row in table.Rows)
+                {
+                    var cells = new List<string>();
+                    foreach (var nestedCell in row.Cells)
+                    {
+                        var nestedParts = new List<string>();
+                        foreach (var child in nestedCell.Elements)
+                        {
+                            var part = FormatCellElement(
+                                child, pageFileBaseName, pageOutFolder, ref imageIndex);
+                            if (!string.IsNullOrWhiteSpace(part))
+                                nestedParts.Add(part);
+                        }
+                        cells.Add($"<td>{string.Join("<br>", nestedParts)}</td>");
+                    }
+                    rows.Add($"<tr>{string.Join("", cells)}</tr>");
+                }
+                return $"<table>{string.Join("", rows)}</table>";
+
+            default:
+                return "";
+        }
     }
 
     private static string FormatRun(Run run)

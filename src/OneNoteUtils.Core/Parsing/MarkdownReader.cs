@@ -377,8 +377,8 @@ public static class MarkdownReader
                 if (bm.Index > pos)
                     elements.AddRange(ParseCellTextSegment(cell.Substring(pos, bm.Index - pos), basePath));
                 elements.Add(bm.Value.StartsWith("<table", StringComparison.OrdinalIgnoreCase)
-                    ? ParseHtmlTable(bm.Value)
-                    : ParseHtmlBulletList(bm.Value));
+                    ? ParseHtmlTable(bm.Value, basePath)
+                    : ParseHtmlBulletList(bm.Value, basePath));
                 pos = bm.Index + bm.Length;
             }
             if (pos < cell.Length)
@@ -392,20 +392,20 @@ public static class MarkdownReader
 
     // Parses an embedded HTML bullet list (<ul><li>…) into a BulletList model.
     // Each <li> inner content is parsed as markdown inline formatting.
-    private static BulletList ParseHtmlBulletList(string html)
+    private static BulletList ParseHtmlBulletList(string html, string? basePath)
     {
         var items = new List<ListItem>();
         foreach (Match lm in HtmlListItemRegex.Matches(html))
         {
-            var runs = ParseInlineFormatting(lm.Groups[1].Value.Trim());
-            items.Add(new ListItem(new List<ContentElement> { new Paragraph(runs) }));
+            var elements = ParseCellElements(lm.Groups[1].Value.Trim(), basePath);
+            items.Add(new ListItem(elements));
         }
         return new BulletList(items);
     }
 
     // Parses an embedded HTML table (<table><tr><th|td>…) into a nested Table model.
     // <th> cells are bolded; the first row is treated as a header (shaded on write).
-    private static Table ParseHtmlTable(string html)
+    private static Table ParseHtmlTable(string html, string? basePath)
     {
         var rows = new List<TableRow>();
         foreach (Match rm in HtmlRowRegex.Matches(html))
@@ -414,12 +414,19 @@ public static class MarkdownReader
             foreach (Match cm in HtmlCellRegex.Matches(rm.Groups[1].Value))
             {
                 bool isHeader = cm.Groups[1].Value.Equals("th", StringComparison.OrdinalIgnoreCase);
-                var runs = HtmlFragmentParser.ParseHtmlToRuns(cm.Groups[2].Value.Trim());
-                if (runs.Count == 0)
-                    runs = [new Run(string.Empty)];
                 if (isHeader)
+                {
+                    var runs = HtmlFragmentParser.ParseHtmlToRuns(cm.Groups[2].Value.Trim());
+                    if (runs.Count == 0)
+                        runs = [new Run(string.Empty)];
                     runs = runs.Select(r => r with { Bold = true }).ToList();
-                cells.Add(new TableCell(new List<ContentElement> { new Paragraph(runs) }));
+                    cells.Add(new TableCell([new Paragraph(runs)]));
+                }
+                else
+                {
+                    cells.Add(new TableCell(
+                        ParseCellElements(cm.Groups[2].Value.Trim(), basePath)));
+                }
             }
             if (cells.Count > 0)
                 rows.Add(new TableRow(cells));

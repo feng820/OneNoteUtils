@@ -174,6 +174,60 @@ public class ObsidianMarkdownWriterTests : IDisposable
     }
 
     [Fact]
+    public void Write_PreservesRichContentInsideTableCell()
+    {
+        var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
+        var richCell = new TableCell([
+            new Paragraph([new Run("Owner update")]),
+            new BulletList([
+                new ListItem([new Paragraph([new Run("First action")])]),
+                new ListItem([new Paragraph([new Run("Second action")])])
+            ]),
+            new Table([
+                new TableRow([
+                    new TableCell([new Paragraph([new Run("Status")])]),
+                    new TableCell([new Paragraph([new Run("ETA")])])
+                ]),
+                new TableRow([
+                    new TableCell([new Paragraph([new Run("In progress")])]),
+                    new TableCell([new Paragraph([new Run("8/7")])])
+                ])
+            ]),
+            new Image("evidence.png", "png", () => imageBytes)
+        ]);
+        var notebook = CreateNotebookWithElements(
+            new Table([
+                new TableRow([
+                    new TableCell([new Paragraph([new Run("KPI")])]),
+                    new TableCell([new Paragraph([new Run("Notes")])])
+                ]),
+                new TableRow([
+                    new TableCell([new Paragraph([new Run("Example KPI")])]),
+                    richCell
+                ])
+            ]));
+
+        _writer.Write(notebook, _tempDir);
+
+        var content = ReadOutputFile("Test Notebook", "My Section", "Test Page.md");
+        content.Should().Contain("<ul><li>First action</li><li>Second action</li></ul>");
+        content.Should().Contain("<table><tr><td>Status</td><td>ETA</td></tr>");
+        content.Should().Contain("<tr><td>In progress</td><td>8/7</td></tr></table>");
+        content.Should().Contain("![[_attachments/Test-Page-image01.png]]");
+        File.Exists(Path.Combine(
+            _tempDir, "Test Notebook", "My Section", "_attachments",
+            "Test-Page-image01.png")).Should().BeTrue();
+
+        var parsed = OneNoteUtils.Core.Parsing.MarkdownReader.Parse(
+            content, Path.Combine(_tempDir, "Test Notebook", "My Section"));
+        var parsedCell = parsed.OfType<Table>().Single().Rows[1].Cells[1];
+        parsedCell.Elements.Should().ContainSingle(e => e is BulletList);
+        parsedCell.Elements.Should().ContainSingle(e => e is Table);
+        parsedCell.Elements.Should().ContainSingle(e => e is Image)
+            .Which.As<Image>().LoadBytes().Should().Equal(imageBytes);
+    }
+
+    [Fact]
     public void Write_WritesLink()
     {
         var notebook = CreateNotebookWithElements(
