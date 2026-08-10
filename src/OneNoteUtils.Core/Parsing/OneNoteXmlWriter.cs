@@ -12,7 +12,7 @@ public static class OneNoteXmlWriter
 {
     private const string OneNoteNs = "http://schemas.microsoft.com/office/onenote/2013/onenote";
 
-    // Match the S360 OneNote template: body text is Calibri 11pt (the "p" quick
+    // Match OneNote's own defaults: body text is Calibri 11pt (the "p" quick
     // style), table cells are Segoe UI 9pt. Without an explicit font, pushed text
     // inherits the target page default and renders inconsistently vs authored pages.
     private const string BodyFont = "font-family:Calibri;font-size:11.0pt";
@@ -187,8 +187,8 @@ public static class OneNoteXmlWriter
 
     private static void WriteHeading(StringBuilder sb, Heading heading)
     {
-        // Match the S360 template: section titles are Calibri bold at a larger
-        // point size (e.g. "All KPIs" / "Get S360 items missing ETA" are 14pt).
+        // Match OneNote's authored headings: section titles are Calibri bold at a
+        // larger point size, stepping down with each heading level.
         var fontSize = heading.Level switch
         {
             1 => 20,
@@ -366,8 +366,8 @@ public static class OneNoteXmlWriter
         var widths = ComputeColumnWidths(table, colCount);
 
         sb.Append("<one:OE>");
-        // Nested (in-cell) tables mark the first row as a shaded header, matching the
-        // native S360 mini-tables (Title/Owner/Due Date/…).
+        // Nested (in-cell) tables mark the first row as a shaded header, matching
+        // how OneNote renders natively authored mini-tables.
         sb.Append(nested
             ? "<one:Table bordersVisible=\"true\" hasHeaderRow=\"true\">"
             : "<one:Table bordersVisible=\"true\">");

@@ -81,7 +81,7 @@ public class OneNoteXmlWriterTests
     public void BuildPageXml_InlineCodeRun_IsConsolasRed()
     {
         var xml = OneNoteXmlWriter.BuildPageXml("p1", "T",
-            [new Paragraph([new Run("MDSFormatS360Output", Code: true)])]);
+            [new Paragraph([new Run("FormatOutput", Code: true)])]);
 
         xml.Should().Contain("font-family:Consolas");
         xml.Should().Contain("color:#DA3900");
@@ -171,8 +171,8 @@ public class OneNoteXmlWriterTests
     [Fact]
     public void Push_TableCellImage_WithSpacedAbsolutePath_LoadsBytes()
     {
-        // Reproduces the real S360 case: an absolute wikilink whose path
-        // contains spaces (e.g. "Test VMs Az Sec pack") inside a table cell.
+        // Regression: an absolute wikilink whose path contains spaces
+        // (e.g. "My Vault Images") inside a table cell.
         string dir = Path.Combine(Path.GetTempPath(), "one note cell img " + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         try
@@ -231,18 +231,18 @@ public class OneNoteXmlWriterTests
     {
         var elements = new List<ContentElement>
         {
-            new Paragraph([new Run("S360 Kusto Query + Data:") { Bold = true }]),
+            new Paragraph([new Run("Query + Data:") { Bold = true }]),
             new Table([
-                new TableRow([new TableCell([new Paragraph([new Run("KPIName")])])]),
+                new TableRow([new TableCell([new Paragraph([new Run("Name")])])]),
                 new TableRow([new TableCell([new Paragraph([new Run("k")])])])
             ])
         };
 
         var xml = OneNoteXmlWriter.BuildPageXml("p1", "T", elements);
 
-        // Body paragraphs render as Calibri 11pt (the S360 "p" quick style)
+        // Body paragraphs render as Calibri 11pt (the "p" quick style)
         xml.Should().Contain("<one:T style=\"font-family:Calibri;font-size:11.0pt\">");
-        // Table cells render as Segoe UI 9pt (matches the authored S360 table)
+        // Table cells render as Segoe UI 9pt (matches a natively authored table)
         xml.Should().Contain("<one:T style=\"font-family:'Segoe UI';font-size:9.0pt\">");
     }
 
@@ -325,9 +325,9 @@ public class OneNoteXmlWriterTests
         $"<?xml version=\"1.0\"?><one:Page xmlns:one=\"{OneNs}\" ID=\"page-1\">" +
         "<one:Title><one:OE><one:T><![CDATA[Week]]></one:T></one:OE></one:Title>" +
         "<one:Outline objectID=\"ol-1\"><one:OEChildren>" +
-        "<one:OE objectID=\"oe-h\"><one:T><![CDATA[All KPIs]]></one:T></one:OE>" +
+        "<one:OE objectID=\"oe-h\"><one:T><![CDATA[Summary]]></one:T></one:OE>" +
         "<one:OE objectID=\"oe-img\"><one:Image format=\"png\" objectID=\"img-1\"><one:Data>QUJD</one:Data></one:Image></one:OE>" +
-        "<one:OE objectID=\"oe-log\"><one:T><![CDATA[New S360 items (daily log)]]></one:T></one:OE>" +
+        "<one:OE objectID=\"oe-log\"><one:T><![CDATA[New items (daily log)]]></one:T></one:OE>" +
         "</one:OEChildren></one:Outline></one:Page>";
 
     [Fact]
