@@ -35,7 +35,17 @@ public interface IOneNoteSource
     /// Finds a section ID by notebook name and section name.
     /// Returns null if not found.
     /// </summary>
+    /// <remarks>
+    /// Prefer <see cref="ResolveSection"/> when reporting failures to the user: this overload
+    /// cannot distinguish "notebook not open" from "section missing".
+    /// </remarks>
     string? FindSectionId(string notebookName, string sectionName);
+
+    /// <summary>
+    /// Resolves a section, reporting *why* the lookup failed so the caller can tell the user
+    /// whether the notebook is closed or the section name is wrong.
+    /// </summary>
+    Parsing.SectionLookupResult ResolveSection(string notebookName, string sectionName);
 
     /// <summary>
     /// Publishes (exports) a page to a PDF file at the specified path.

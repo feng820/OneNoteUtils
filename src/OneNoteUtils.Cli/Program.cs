@@ -47,7 +47,7 @@ else if (!string.IsNullOrEmpty(movePage))
     if (string.IsNullOrEmpty(notebookName) || sections.Count == 0 || string.IsNullOrEmpty(underPage))
     {
         Console.Error.WriteLine("Move requires --notebook, --section and --under-page. Example:");
-        Console.Error.WriteLine("  OneNoteUtils.Cli --move-page \"{pageId}\" -n \"MDSPD\" -s \"S360\" --under-page \"CY26Q2\"");
+        Console.Error.WriteLine("  OneNoteUtils.Cli --move-page \"{pageId}\" -n \"Work\" -s \"Meetings\" --under-page \"2026 Q2\"");
         return 1;
     }
 }
@@ -495,12 +495,14 @@ static int RunMovePage(ServiceProvider provider, string notebookName, string sec
     {
         var source = provider.GetRequiredService<IOneNoteSource>();
 
-        var sectionId = source.FindSectionId(notebookName, sectionName);
-        if (sectionId == null)
+        var lookup = source.ResolveSection(notebookName, sectionName);
+        if (!lookup.IsFound)
         {
-            logger.LogError("Section '{Section}' not found in notebook '{Notebook}'.", sectionName, notebookName);
+            logger.LogError("{Message}", lookup.ToErrorMessage(notebookName, sectionName));
             return 1;
         }
+
+        var sectionId = lookup.SectionId!;
 
         var moved = source.MovePageUnderHeader(sectionId, pageId, underPage);
         if (moved)
@@ -603,12 +605,14 @@ static int RunPush(ServiceProvider provider, string pushPath, string notebookNam
             mdFiles.Count, notebookName, sectionName);
 
         // Find the target section ID
-        var sectionId = source.FindSectionId(notebookName, sectionName);
-        if (sectionId == null)
+        var lookup = source.ResolveSection(notebookName, sectionName);
+        if (!lookup.IsFound)
         {
-            logger.LogError("Section '{Section}' not found in notebook '{Notebook}'.", sectionName, notebookName);
+            logger.LogError("{Message}", lookup.ToErrorMessage(notebookName, sectionName));
             return 1;
         }
+
+        var sectionId = lookup.SectionId!;
 
         // Load manifest for push tracking
         var manifest = SyncManifest.Load(manifestDir);
@@ -843,8 +847,8 @@ static void PrintUsage()
           OneNoteUtils.Cli -n "My Notebook" -o C:\Export --dry-run
           OneNoteUtils.Cli --push "C:\Vault\Note.md" -n "Team Notebook" -s "Shared"
           OneNoteUtils.Cli --push "C:\Vault\Notes\" -n "Team Notebook" -s "Shared"
-          OneNoteUtils.Cli --push "C:\Vault\Note.md" -n "MDSPD" -s "S360" --under-page "CY26Q2"
-          OneNoteUtils.Cli --move-page "{pageId}" -n "MDSPD" -s "S360" --under-page "CY26Q2"
+          OneNoteUtils.Cli --push "C:\Vault\Note.md" -n "Team Notebook" -s "Shared" --under-page "2026 Q2"
+          OneNoteUtils.Cli --move-page "{pageId}" -n "Team Notebook" -s "Shared" --under-page "2026 Q2"
           OneNoteUtils.Cli --append "C:\Vault\day-block.md" --page-id "{pageId}" --anchor "daily log"
           OneNoteUtils.Cli --delete-page "{pageId}"
         """);

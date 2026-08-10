@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using OneNoteUtils.Core;
+using OneNoteUtils.Core.Parsing;
 using OneNoteUtils.OneNote.Interop;
 
 namespace OneNoteUtils.OneNote;
@@ -169,33 +170,17 @@ public class ComOneNoteSource : IOneNoteSource, IDisposable
     }
 
     public string? FindSectionId(string notebookName, string sectionName)
+        => ResolveSection(notebookName, sectionName).SectionId;
+
+    public SectionLookupResult ResolveSection(string notebookName, string sectionName)
     {
-        return RunOnStaThread(() =>
+        var xml = RunOnStaThread(() =>
         {
-            _app!.GetHierarchy("", HierarchyScope.Sections, out var xml);
-            var doc = new System.Xml.XmlDocument();
-            doc.LoadXml(xml);
-
-            var notebooks = doc.SelectNodes("//*[local-name()='Notebook']");
-            if (notebooks == null) return (string?)null;
-
-            foreach (System.Xml.XmlElement nb in notebooks)
-            {
-                if (!nb.GetAttribute("name").Equals(notebookName, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                var sections = nb.SelectNodes(".//*[local-name()='Section']");
-                if (sections == null) continue;
-
-                foreach (System.Xml.XmlElement sec in sections)
-                {
-                    if (sec.GetAttribute("name").Equals(sectionName, StringComparison.OrdinalIgnoreCase))
-                        return sec.GetAttribute("ID");
-                }
-            }
-
-            return (string?)null;
+            _app!.GetHierarchy("", HierarchyScope.Sections, out var hierarchyXml);
+            return hierarchyXml;
         });
+
+        return SectionResolver.Resolve(xml, notebookName, sectionName);
     }
 
     public void PublishPageToPdf(string pageId, string outputFilePath)
