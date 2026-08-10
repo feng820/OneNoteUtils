@@ -3,3 +3,8 @@ bin/
 obj/
 *.user
 .vs/
+
+# Per-user runtime artifacts (keyed by absolute local paths, not portable)
+.onenote-sync.json
+.SharedData/
+Temp/
